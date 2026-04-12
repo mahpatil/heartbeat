@@ -82,10 +82,28 @@ tasks:
 - agent: claude
   prompt: "Review code for bugs"
 
+- agent: opencode
+  params: "--resume mysession --dangerously-skip-permissions"
+  prompt: "Check for bugs in this folder"
+
 - agent_api:
   provider: anthropic
   model: claude-sonnet-4-20250514
   prompt: "Summarize this file"
+```
+
+#### Agent Params
+
+Pass CLI arguments to agents:
+
+```yaml
+- agent: claude
+  params: "--resume mysession --dangerously-skip-permissions"
+  prompt: "Run ls"
+
+- agent: opencode
+  args: "-v --no-confirm"
+  prompt: "Review code"
 ```
 
 ### Natural Language (`.htb`)
@@ -102,6 +120,7 @@ Every 15 minutes:
     On missing: echo "Status missing"
     
   - Ask Claude: Review code for bugs
+    With: --resume mysession --dangerously-skip-permissions
 ```
 
 ## Frequency Shorthands
@@ -173,6 +192,19 @@ launchctl load ~/Library/LaunchAgents/com.heartbeat.mycheck.plist
 
 # Unload
 launchctl unload ~/Library/LaunchAgents/com.heartbeat.mycheck.plist
+```
+
+## Testing
+
+```bash
+# Run tests
+python3 -m pytest tests/ -v
+
+# Run specific test
+python3 -m pytest tests/test_heartbeat.py::test_parse_yaml -v
+
+# Run with coverage
+python3 -m pytest tests/ --cov=heartbeat --cov-report=term-missing
 ```
 
 ## File Structure

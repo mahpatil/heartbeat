@@ -388,7 +388,7 @@ class ConfigParser:
             (r"every\s+(\d+)\s*minutes", "*/{0} * * * *"),
             (r"every\s+hour", "0 * * * *"),
             (r"hourly", "0 * * * *"),
-            (r"daily\s+at\s+(\d{1,2}):(\d{2})", "{1} {0} * * *"),
+            (r"daily\s+at\s+(\d{1,2}):(\d{2})", None),
             (r"daily", "0 * * * *"),
             (r"weekly\s+on\s+monday", "0 0 * * 1"),
             (r"weekly", "0 0 * * 0"),
@@ -397,10 +397,14 @@ class ConfigParser:
         for pattern, replacement in patterns:
             m = re.search(pattern, text, re.IGNORECASE)
             if m:
+                if pattern == r"daily\s+at\s+(\d{1,2}):(\d{2})" and m.groups():
+                    hour = int(m.group(1))
+                    return f"0 {hour} * * *"
                 groups = m.groups()
-                if groups:
+                if groups and replacement:
                     return replacement.format(*groups)
-                return replacement
+                elif replacement:
+                    return replacement
 
         return "*/15 * * * *"
 
