@@ -41,8 +41,11 @@ EOF
 # 3. Run manually
 heartbeat run my-check
 
-# 4. Add to cron
+# 4. Add to cron (automatic scheduling)
 heartbeat add-cron my-check
+
+# 5. View cron entries
+crontab -l
 ```
 
 ## Usage
@@ -111,6 +114,66 @@ Every 15 minutes:
 | `daily` | `0 * * * *` |
 | `daily 9` | `0 9 * * *` |
 | `weekly` | `0 0 * * 0` |
+
+## Scheduling
+
+The heartbeat runs automatically when added to cron:
+
+### Option 1: Cron (Recommended for Linux/macOS)
+
+```bash
+# Add job to crontab
+heartbeat add-cron my-check
+
+# View current cron entries
+crontab -l
+
+# Edit crontab manually
+crontab -e
+
+# Remove from cron
+heartbeat remove my-check
+```
+
+Cron entry example:
+```
+*/15 * * * * python3 ~/.heartbeat/heartbeat.py -c '~/.heartbeat/jobs/my-check.yaml'
+```
+
+### Option 2: macOS Launchd
+
+For macOS, you can use `launchd` instead of cron:
+
+```bash
+# Create a plist (for background check every 15 min)
+cat > ~/Library/LaunchAgents/com.heartbeat.mycheck.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.heartbeat.mycheck</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>python3</string>
+        <string>/Users/maheshpatil/.heartbeat/heartbeat.py</string>
+        <string>-c</string>
+        <string>/Users/maheshpatil/.heartbeat/jobs/my-check.yaml</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>900</integer>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+# Load the agent
+launchctl load ~/Library/LaunchAgents/com.heartbeat.mycheck.plist
+
+# Unload
+launchctl unload ~/Library/LaunchAgents/com.heartbeat.mycheck.plist
+```
 
 ## File Structure
 
