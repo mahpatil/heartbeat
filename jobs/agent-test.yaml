@@ -1,0 +1,8 @@
+name: "agent-test"
+folder: "."
+frequency: "*/15 * * * *"
+
+tasks:
+- agent: claude
+  params: "--resume mysession --dangerously-skip-permissions"
+  prompt: "Run ls to list files"

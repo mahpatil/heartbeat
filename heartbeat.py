@@ -54,6 +54,10 @@ def parse_simple_yaml(content: str) -> dict:
             current_task = {"type": value}
             tasks.append(current_task)
 
+        elif key == "agent":
+            current_task = {"agent": value}
+            tasks.append(current_task)
+
         elif key in (
             "command",
             "url",
@@ -64,6 +68,8 @@ def parse_simple_yaml(content: str) -> dict:
             "provider",
             "model",
             "api_key_env",
+            "params",
+            "args",
         ):
             if current_task:
                 current_task[key] = value
@@ -147,14 +153,20 @@ class TaskRunner:
         prompt = task.get("prompt", "")
         folder = ctx.get("folder", ".")
 
+        params = task.get("params") or task.get("args") or []
+        if isinstance(params, str):
+            params = params.split()
+
         if not agent or not prompt:
             logger.error("Agent task missing agent name or prompt")
             return False
 
         full_prompt = f"In {folder}: {prompt}"
 
-        cmd = [agent, "--prompt", full_prompt]
-        logger.info(f"Running agent: {agent}")
+        cmd = [agent]
+        cmd.extend(params)
+        cmd.append(full_prompt)
+        logger.info(f"Running agent: {agent} {' '.join(params)} [prompt]")
 
         try:
             result = subprocess.run(cmd, capture_output=True, timeout=600)
@@ -344,6 +356,22 @@ class ConfigParser:
                 if current_task:
                     config["tasks"].append(current_task)
                 current_task = {"agent": "codex", "prompt": value}
+            elif key in ("params", "args"):
+                if current_task:
+                    current_task["params"] = (
+                        value  # Keep as string, split in _run_agent
+                    )
+            elif key == "resume":
+                if current_task:
+                    current_task.setdefault("params", []).extend(["--resume", value])
+            elif key == "skip permissions":
+                if current_task:
+                    current_task.setdefault("params", []).append(
+                        "--dangerously-skip-permissions"
+                    )
+            elif key == "with":
+                if current_task:
+                    current_task["params"] = value.split()
             else:
                 continue
 
