@@ -54,10 +54,6 @@ def parse_simple_yaml(content: str) -> dict:
             current_task = {"type": value}
             tasks.append(current_task)
 
-        elif key == "agent":
-            current_task = {"agent": value}
-            tasks.append(current_task)
-
         elif key in (
             "command",
             "url",
@@ -68,8 +64,6 @@ def parse_simple_yaml(content: str) -> dict:
             "provider",
             "model",
             "api_key_env",
-            "params",
-            "args",
         ):
             if current_task:
                 current_task[key] = value
@@ -153,20 +147,14 @@ class TaskRunner:
         prompt = task.get("prompt", "")
         folder = ctx.get("folder", ".")
 
-        params = task.get("params") or task.get("args") or []
-        if isinstance(params, str):
-            params = params.split()
-
         if not agent or not prompt:
             logger.error("Agent task missing agent name or prompt")
             return False
 
         full_prompt = f"In {folder}: {prompt}"
 
-        cmd = [agent]
-        cmd.extend(params)
-        cmd.append(full_prompt)
-        logger.info(f"Running agent: {agent} {' '.join(params)} [prompt]")
+        cmd = [agent, "--prompt", full_prompt]
+        logger.info(f"Running agent: {agent}")
 
         try:
             result = subprocess.run(cmd, capture_output=True, timeout=600)
@@ -356,22 +344,6 @@ class ConfigParser:
                 if current_task:
                     config["tasks"].append(current_task)
                 current_task = {"agent": "codex", "prompt": value}
-            elif key in ("params", "args"):
-                if current_task:
-                    current_task["params"] = (
-                        value  # Keep as string, split in _run_agent
-                    )
-            elif key == "resume":
-                if current_task:
-                    current_task.setdefault("params", []).extend(["--resume", value])
-            elif key == "skip permissions":
-                if current_task:
-                    current_task.setdefault("params", []).append(
-                        "--dangerously-skip-permissions"
-                    )
-            elif key == "with":
-                if current_task:
-                    current_task["params"] = value.split()
             else:
                 continue
 
@@ -388,7 +360,7 @@ class ConfigParser:
             (r"every\s+(\d+)\s*minutes", "*/{0} * * * *"),
             (r"every\s+hour", "0 * * * *"),
             (r"hourly", "0 * * * *"),
-            (r"daily\s+at\s+(\d{1,2}):(\d{2})", None),
+            (r"daily\s+at\s+(\d{1,2}):(\d{2})", "{1} {0} * * *"),
             (r"daily", "0 * * * *"),
             (r"weekly\s+on\s+monday", "0 0 * * 1"),
             (r"weekly", "0 0 * * 0"),
@@ -397,14 +369,10 @@ class ConfigParser:
         for pattern, replacement in patterns:
             m = re.search(pattern, text, re.IGNORECASE)
             if m:
-                if pattern == r"daily\s+at\s+(\d{1,2}):(\d{2})" and m.groups():
-                    hour = int(m.group(1))
-                    return f"0 {hour} * * *"
                 groups = m.groups()
-                if groups and replacement:
+                if groups:
                     return replacement.format(*groups)
-                elif replacement:
-                    return replacement
+                return replacement
 
         return "*/15 * * * *"
 
