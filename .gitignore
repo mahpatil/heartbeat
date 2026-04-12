@@ -1,0 +1,5 @@
+.DS_Store
+*.pyc
+__pycache__/
+.ruff_cache/
+logs/

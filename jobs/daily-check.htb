@@ -1,0 +1,11 @@
+# Heartbeat: Daily site check every hour
+# Folder: /Users/maheshpatil/project
+
+Every hour:
+  - URL reachable: https://example.com
+    On fail: echo "Site down at $(date)"
+    
+  - File exists: status.md
+    On missing: echo "Status file missing"
+    
+  - Run: echo "Heartbeat check completed"
