@@ -177,7 +177,11 @@ cmd_add_cron() {
         exit 1
     fi
     
-    local frequency=$(grep -E "^frequency:" "$job_file" 2>/dev/null | sed 's/.*frequency: *//' | tr -d '"') || echo "*/15 * * * *"
+    local frequency=$(grep -v "^#" "$job_file" 2>/dev/null | grep -E "^frequency:" | sed 's/.*frequency: *//' | tr -d '"')
+    if [[ -z "$frequency" ]]; then
+        frequency=$(grep -E "^#.*Frequency:" "$job_file" 2>/dev/null | sed 's/.*Frequency: *//' | tr -d '"') || frequency="*/15 * * * *"
+    fi
+    [[ -z "$frequency" ]] && frequency="*/15 * * * *"
     local log_file="${HEARTBEAT_LOGS}/${name}.log"
     local cron_cmd="python3 ${HEARTBEAT_PY} -c '${job_file}' >> '${log_file}' 2>&1"
     local cron_entry="${frequency} ${cron_cmd}  ${CRON_TAG} ${name}"
