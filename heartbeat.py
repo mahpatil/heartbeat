@@ -11,6 +11,7 @@ import re
 import urllib.request
 import urllib.error
 import os
+from datetime import datetime
 
 try:
     import yaml
@@ -19,12 +20,24 @@ try:
 except ImportError:
     YAML_AVAILABLE = False
 
+try:
+    from .plugins import get_plugin
+
+    PLUGINS_AVAILABLE = True
+except ImportError:
+    PLUGINS_AVAILABLE = False
+
+    def get_plugin(name):
+        return None
+
 
 def parse_simple_yaml(content: str) -> dict:
     """Simple YAML parser for basic configs"""
-    result = {"tasks": []}
+    result = {"tasks": [], "notifications": []}
     tasks = result["tasks"]
+    notifications = result["notifications"]
     current_task = None
+    current_notification = None
     indent_level = 0
 
     for line in content.split("\n"):
@@ -37,8 +50,56 @@ def parse_simple_yaml(content: str) -> dict:
         indent = len(original) - len(original.lstrip())
 
         if stripped.startswith("-"):
-            indent = 0
             stripped = stripped.lstrip("- ").strip()
+
+            if ":" not in stripped:
+                continue
+
+            key, _, value = stripped.partition(":")
+            key = key.strip()
+            value = value.strip().strip('"')
+
+            if key in ("type", "command", "url", "path", "on_fail", "agent", "prompt"):
+                if "type" in (key, value) and value in (
+                    "run",
+                    "url",
+                    "file_exists",
+                    "agent",
+                    "claude",
+                    "opencode",
+                    "codex",
+                    "agent_api",
+                ):
+                    if current_task:
+                        tasks.append(current_task)
+                    if current_notification:
+                        notifications.append(current_notification)
+                        current_notification = None
+                    current_task = {"type": value}
+                elif key == "type" and value == "telegram":
+                    if current_task:
+                        tasks.append(current_task)
+                        current_task = None
+                    if current_notification:
+                        notifications.append(current_notification)
+                    current_notification = {"type": value}
+                elif (
+                    key in ("api_token", "chat_id", "on_failure", "on_success")
+                    and current_notification
+                ):
+                    current_notification[key] = value
+                elif current_task is None and key in (
+                    "name",
+                    "folder",
+                    "frequency",
+                    "run_once_at",
+                ):
+                    result[key] = value
+                elif current_task:
+                    current_task[key] = value
+            elif current_notification:
+                current_notification[key] = value
+            continue
 
         if ":" not in stripped:
             continue
@@ -47,13 +108,24 @@ def parse_simple_yaml(content: str) -> dict:
         key = key.strip()
         value = value.strip().strip('"')
 
-        if key in ("name", "folder", "frequency"):
+        if key in ("name", "folder", "frequency", "run_once_at"):
             result[key] = value
-
         elif key == "type":
-            current_task = {"type": value}
-            tasks.append(current_task)
-
+            if value == "telegram":
+                if current_task:
+                    tasks.append(current_task)
+                    current_task = None
+                if current_notification:
+                    notifications.append(current_notification)
+                current_notification = {"type": value}
+            else:
+                if current_notification:
+                    notifications.append(current_notification)
+                    current_notification = None
+                if current_task:
+                    tasks.append(current_task)
+                current_task = {"type": value}
+                tasks.append(current_task)
         elif key in (
             "command",
             "url",
@@ -67,6 +139,14 @@ def parse_simple_yaml(content: str) -> dict:
         ):
             if current_task:
                 current_task[key] = value
+        elif key in ("api_token", "chat_id", "on_failure", "on_success"):
+            if current_notification:
+                current_notification[key] = value
+
+    if current_task:
+        tasks.append(current_task)
+    if current_notification:
+        notifications.append(current_notification)
 
     return result
 
@@ -282,6 +362,7 @@ class ConfigParser:
         name_match = re.search(r"# Heartbeat:\s*(.+)", content, re.IGNORECASE)
         folder_match = re.search(r"# Folder:\s*(.+)", content, re.IGNORECASE)
         freq_match = re.search(r"Every\s+(.+?):", content, re.IGNORECASE)
+        run_once_match = re.search(r"# Run once at:\s*(.+)", content, re.IGNORECASE)
 
         config = {
             "name": name_match.group(1).strip() if name_match else "Unnamed",
@@ -289,6 +370,7 @@ class ConfigParser:
             "frequency": self._parse_frequency(freq_match.group(1))
             if freq_match
             else "*/15 * * * *",
+            "run_once_at": run_once_match.group(1).strip() if run_once_match else None,
             "tasks": [],
         }
 
@@ -378,6 +460,8 @@ class ConfigParser:
 
 
 class Heartbeat:
+    RUN_ONCE_MARKER = "HEARTBEAT_COMPLETED"
+
     def __init__(self, config_path: str = None):
         self.config_path = config_path
         self.runner = TaskRunner()
@@ -388,7 +472,87 @@ class Heartbeat:
         else:
             self.config = {}
 
+    def _check_run_once(self) -> bool:
+        """Check if run_once_at is set and already ran. Returns True to skip."""
+        run_once_at = self.config.get("run_once_at")
+        if not run_once_at:
+            return False
+
+        try:
+            target_time = datetime.fromisoformat(run_once_at.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                target_time = datetime.strptime(run_once_at, "%Y-%m-%d %H:%M")
+            except ValueError:
+                logger.warning(f"Invalid run_once_at format: {run_once_at}")
+                return False
+
+        now = datetime.now()
+        if now < target_time:
+            logger.info(f"run_once_at not yet reached: {run_once_at}")
+            return True
+
+        if not self.config.get("log_file"):
+            log_dir = pathlib.Path.home() / ".heartbeat" / "logs"
+            job_name = self.config.get("name", "unknown")
+            log_file = log_dir / f"{job_name}.log"
+            self.config["log_file"] = str(log_file)
+
+        log_file = self.config.get("log_file")
+        if log_file and pathlib.Path(log_file).exists():
+            marker = f"{self.RUN_ONCE_MARKER}_{self.config.get('name', '')}"
+            try:
+                content = pathlib.Path(log_file).read_text()
+                if marker in content:
+                    logger.info(f"run_once already completed, skipping")
+                    return True
+            except Exception:
+                pass
+
+        return False
+
+    def _mark_run_once_complete(self):
+        """Mark run_once as complete in log file."""
+        if not self.config.get("log_file"):
+            return
+
+        marker = f"{self.RUN_ONCE_MARKER}_{self.config.get('name', '')}"
+        try:
+            with open(self.config["log_file"], "a") as f:
+                f.write(f"\n{marker}\n")
+        except Exception as e:
+            logger.warning(f"Could not write run_once marker: {e}")
+
+    def _send_notifications(self, success: bool):
+        """Send notifications based on config."""
+        notifications = self.config.get("notifications", [])
+        if not notifications:
+            return
+
+        job_name = self.config.get("name", "unknown")
+        status = "SUCCESS" if success else "FAILED"
+        message = f"Heartbeat *{job_name}* {status}"
+
+        for notif in notifications:
+            notif_type = notif.get("type", "").lower()
+            if notif_type == "telegram":
+                on_failure = notif.get("on_failure", False)
+                on_success = notif.get("on_success", False)
+
+                should_send = (success and on_success) or (not success and on_failure)
+                if not should_send:
+                    continue
+
+                plugin = get_plugin("telegram")
+                if plugin:
+                    plugin.send(notif, message)
+
     def run(self) -> bool:
+        run_once_at = self.config.get("run_once_at")
+        if run_once_at and self._check_run_once():
+            print("SKIP_RUN_ONCE")
+            return True
+
         folder = self.config.get("folder", ".")
         tasks = self.config.get("tasks", [])
 
@@ -412,6 +576,13 @@ class Heartbeat:
 
         all_passed = all(results) if results else True
         logger.info(f"Heartbeat completed: {'SUCCESS' if all_passed else 'FAILED'}")
+
+        self._send_notifications(all_passed)
+
+        if self.config.get("run_once_at"):
+            self._mark_run_once_complete()
+            print(f"REMOVE_CRON:{self.config.get('name', '')}")
+
         return all_passed
 
 

@@ -28,7 +28,8 @@ Usage: heartbeat <command> [options]
 Commands:
     add <name> [options]     Add a new heartbeat job
     list                     List all heartbeat jobs
-    remove <name>           Remove a heartbeat job
+    remove <name>           Remove a heartbeat job and cron
+    remove-cron <name>      Remove only the cron entry
     run <name>               Run a heartbeat job manually
     logs [name]              Show logs (last 50 lines)
     help                     Show this help
@@ -171,7 +172,8 @@ cmd_add_cron() {
     fi
     
     local frequency=$(grep -E "^frequency:" "$job_file" 2>/dev/null | sed 's/.*frequency: *//' | tr -d '"') || echo "*/15 * * * *"
-    local cron_cmd="python3 ${HEARTBEAT_PY} -c '${job_file}'"
+    local log_file="${HEARTBEAT_LOGS}/${name}.log"
+    local cron_cmd="python3 ${HEARTBEAT_PY} -c '${job_file}' >> '${log_file}' 2>&1"
     local cron_entry="${frequency} ${cron_cmd}  ${CRON_TAG} ${name}"
     
     (crontab -l 2>/dev/null | grep -v "${CRON_TAG} ${name}$"; echo "$cron_entry") | crontab -
@@ -210,28 +212,43 @@ cmd_list() {
 
 cmd_remove() {
     local name="$1"
+    local remove_file="${2:-}"
     
     if [[ -z "$name" ]]; then
         log_error "Job name required"
         exit 1
     fi
     
-    local job_file=""
-    for ext in ".yaml" ".yml" ".htb"; do
-        if [[ -f "${HEARTBEAT_JOBS}/${name}${ext}" ]]; then
-            job_file="${HEARTBEAT_JOBS}/${name}${ext}"
-            break
+    if [[ "$remove_file" != "--keep-file" && -n "$remove_file" && "$remove_file" != "--cron-only" ]]; then
+        local job_file=""
+        for ext in ".yaml" ".yml" ".htb"; do
+            if [[ -f "${HEARTBEAT_JOBS}/${name}${ext}" ]]; then
+                job_file="${HEARTBEAT_JOBS}/${name}${ext}"
+                break
+            fi
+        done
+        
+        if [[ -n "$job_file" ]]; then
+            rm "$job_file"
+            log_info "Removed job file: $job_file"
+        else
+            log_warn "Job file not found: $name"
         fi
-    done
-    
-    if [[ -n "$job_file" ]]; then
-        rm "$job_file"
-        log_info "Removed job file: $job_file"
-    else
-        log_warn "Job file not found: $name"
     fi
     
-    crontab -l 2>/dev/null | grep -v "${CRON_TAG} ${name}:" | crontab -
+    crontab -l 2>/dev/null | grep -v "${CRON_TAG} ${name}$" | crontab -
+    log_info "Removed cron job: $name"
+}
+
+cmd_remove_cron() {
+    local name="$1"
+    
+    if [[ -z "$name" ]]; then
+        log_error "Job name required"
+        exit 1
+    fi
+    
+    crontab -l 2>/dev/null | grep -v "${CRON_TAG} ${name}$" | crontab -
     log_info "Removed cron job: $name"
 }
 
@@ -257,7 +274,20 @@ cmd_run() {
     fi
     
     log_info "Running job: $name"
-    python3 "$HEARTBEAT_PY" -c "$job_file"
+    local output=$(python3 "$HEARTBEAT_PY" -c "$job_file" 2>&1)
+    local exit_code=$?
+    
+    echo "$output"
+    
+    if echo "$output" | grep -q "REMOVE_CRON:"; then
+        local job_to_remove=$(echo "$output" | grep "REMOVE_CRON:" | cut -d: -f2)
+        if [[ -n "$job_to_remove" ]]; then
+            log_info "Removing cron job after run_once: $job_to_remove"
+            cmd_remove_cron "$job_to_remove"
+        fi
+    fi
+    
+    exit $exit_code
 }
 
 cmd_logs() {
@@ -290,6 +320,8 @@ main() {
             cmd_list ;;
         remove|rm|delete)
             cmd_remove "$@" ;;
+        remove-cron)
+            cmd_remove_cron "$@" ;;
         run|exec)
             cmd_run "$@" ;;
         logs)
