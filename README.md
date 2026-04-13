@@ -84,10 +84,10 @@ tasks:
   path: "data.json"
 
 - agent: claude
-  prompt: "Review code for bugs"
+  
 
 - agent: opencode
-  params: "--resume mysession --dangerously-skip-permissions"
+  
   prompt: "Check for bugs in this folder"
 
 - agent_api:
@@ -108,6 +108,8 @@ Run a job exactly once at a specific time:
 
 ```yaml
 name: "my-once-job"
+folder: "~/project"
+frequency: "*/15 * * * *"
 run_once_at: "2026-04-15 09:00"
 
 tasks:
@@ -115,7 +117,17 @@ tasks:
   command: "echo 'Morning report'"
 ```
 
-The cron entry is automatically removed after the task runs.
+**How it works:**
+1. Add a `run_once_at: "YYYY-MM-DD HH:MM"` field to your job config
+2. Add the job to cron: `heartbeat add-cron my-once-job`
+3. When the scheduled time is reached, the job runs
+4. After successful completion, the cron entry is automatically removed
+
+**Notes:**
+- The job config must have a `frequency` field (used by cron to schedule when to check)
+- The `run_once_at` time uses local timezone
+- Logs track completion with a marker to prevent re-running
+- Both the `run_once_at` key and `# Run once at:` comment are supported
 
 #### Notifications
 
@@ -151,6 +163,7 @@ Pass CLI arguments to agents:
 ```natural-language
 # Heartbeat: My check job
 # Folder: ~/project
+# Frequency: */15 * * * *
 # Run once at: 2026-04-15 09:00
 
 Every 15 minutes:
