@@ -54,7 +54,18 @@ crontab -l
 ## Usage
 
 ```bash
+# Create a new job (prompts to edit config and add cron separately)
 heartbeat add "job name" --folder ~/project --frequency "every 15 min"
+
+# Create job from existing config template
+heartbeat add "job name" --config /path/to/existing.yaml
+
+# Create job and add to cron in one step
+heartbeat add "job name" --folder ~/project --frequency "15min" --cron
+
+# Create job from template and add to cron
+heartbeat add "job name" --config /path/to/existing.yaml --cron
+
 heartbeat add-cron "job name"    # Add to crontab
 heartbeat remove-cron "job name" # Remove only cron entry
 heartbeat list                   # List all jobs

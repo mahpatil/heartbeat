@@ -39,6 +39,7 @@ Options for add:
     --frequency <freq>      Frequency (e.g., "15min", "hourly", "daily at 9:00")
     --task <task>           Task to run (can specify multiple)
     --config <file>         Use existing config file as template
+    --cron                  Also add cron entry (after adding tasks)
 
 Examples:
     heartbeat add "check site" --folder ~/project --frequency "every 15 min"
@@ -101,6 +102,8 @@ cmd_add() {
     local folder="."
     local frequency="*/15 * * * *"
     local tasks=()
+    local config_template=""
+    local add_cron=false
     
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -113,6 +116,12 @@ cmd_add() {
             --task|-t)
                 tasks+=("$2")
                 shift 2 ;;
+            --config|-c)
+                config_template="$2"
+                shift 2 ;;
+            --cron|-r)
+                add_cron=true
+                shift ;;
             -*)
                 shift ;;
             *)
@@ -131,13 +140,22 @@ cmd_add() {
     
     local job_file="${HEARTBEAT_JOBS}/${name}.yaml"
     
-    if [[ -f "$job_file" ]]; then
-        local backup="${job_file}.bak.$(date +%Y%m%d_%H%M%S)"
-        cp "$job_file" "$backup"
-        log_warn "Backed up existing job to: $backup"
-    fi
-    
-    cat > "$job_file" <<EOF
+    if [[ -n "$config_template" ]]; then
+        if [[ ! -f "$config_template" ]]; then
+            log_error "Config template not found: $config_template"
+            exit 1
+        fi
+        cp "$config_template" "$job_file"
+        log_info "Created job from template: $name"
+        log_info "Config: $job_file"
+    else
+        if [[ -f "$job_file" ]]; then
+            local backup="${job_file}.bak.$(date +%Y%m%d_%H%M%S)"
+            cp "$job_file" "$backup"
+            log_warn "Backed up existing job to: $backup"
+        fi
+        
+        cat > "$job_file" <<EOF
 # Heartbeat: $name
 # Created: $(date)
 # Frequency: $frequency
@@ -149,11 +167,16 @@ frequency: "$frequency"
 tasks: []
 EOF
 
-    log_info "Created job: $name"
-    log_info "Config: $job_file"
-    log_info "Frequency: $frequency"
-    log_warn "Edit the config file to add tasks, then run:"
-    log_warn "  heartbeat add-cron '$name'"
+        log_info "Created job: $name"
+        log_info "Config: $job_file"
+        log_info "Frequency: $frequency"
+        log_warn "Edit the config file to add tasks, then run:"
+        log_warn "  heartbeat add-cron '$name'"
+    fi
+    
+    if [[ "$add_cron" == "true" ]]; then
+        cmd_add_cron "$name"
+    fi
 }
 
 cmd_add_cron() {
