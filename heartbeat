@@ -131,6 +131,12 @@ cmd_add() {
     
     local job_file="${HEARTBEAT_JOBS}/${name}.yaml"
     
+    if [[ -f "$job_file" ]]; then
+        local backup="${job_file}.bak.$(date +%Y%m%d_%H%M%S)"
+        cp "$job_file" "$backup"
+        log_warn "Backed up existing job to: $backup"
+    fi
+    
     cat > "$job_file" <<EOF
 # Heartbeat: $name
 # Created: $(date)
