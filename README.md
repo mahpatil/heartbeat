@@ -157,17 +157,32 @@ Environment variables can be used with `env:VAR_NAME` syntax.
 
 #### Agent Params
 
-Pass CLI arguments to agents:
+Pass CLI arguments to agents via `params` (or `args`):
 
 ```yaml
 - agent: claude
-  params: "--resume mysession --dangerously-skip-permissions"
+  params: "--dangerously-skip-permissions"
   prompt: "Run ls"
+  # Runs: claude -p --dangerously-skip-permissions "In <folder>: Run ls"
 
 - agent: opencode
-  args: "-v --no-confirm"
+  params: "--model anthropic/claude-sonnet-4-6"
   prompt: "Review code"
+  # Runs: opencode run --model anthropic/claude-sonnet-4-6 "In <folder>: Review code"
+
+- agent: codex
+  params: "--model o3"
+  prompt: "Fix the bug"
+  # Runs: codex exec --model o3 "In <folder>: Fix the bug"
 ```
+
+Each agent maps to its non-interactive subcommand:
+
+| Agent | Command format |
+|-------|---------------|
+| `claude` | `claude -p [params] "<prompt>"` |
+| `opencode` | `opencode run [params] "<prompt>"` |
+| `codex` | `codex exec [params] "<prompt>"` |
 
 ### Natural Language (`.htb`)
 

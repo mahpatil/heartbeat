@@ -223,26 +223,46 @@ class TaskRunner:
         return exists
 
     def _run_agent(self, task: dict, ctx: dict) -> bool:
+        import shlex
+
         agent = task.get("agent") or task.get("name") or task.get("type")
         prompt = task.get("prompt", "")
         folder = ctx.get("folder", ".")
+        params_str = task.get("params") or task.get("args", "")
 
         if not agent or not prompt:
             logger.error("Agent task missing agent name or prompt")
             return False
 
-        full_prompt = f"In {folder}: {prompt}"
+        params = shlex.split(params_str) if params_str else []
 
-        cmd = [agent, "--prompt", full_prompt]
-        logger.info(f"Running agent: {agent}")
+        if agent == "claude":
+            cmd = ["claude", "-p"] + params + [prompt]
+        elif agent == "opencode":
+            cmd = ["opencode", "run"] + params + [prompt]
+        elif agent == "codex":
+            cmd = ["codex", "exec"] + params + [prompt]
+        else:
+            cmd = [agent] + params + [prompt]
+
+        cwd = str(pathlib.Path(folder).expanduser()) if folder and folder != "." else None
+        logger.info(f"Running agent: {agent} in {cwd or '.'}: {cmd}")
 
         try:
-            result = subprocess.run(cmd, capture_output=True, timeout=600)
+            result = subprocess.run(cmd, capture_output=True, timeout=600, cwd=cwd)
+            stdout = result.stdout.decode(errors="replace").strip()
+            stderr = result.stderr.decode(errors="replace").strip()
+            if stdout:
+                for line in stdout.splitlines():
+                    logger.info(f"[{agent}] {line}")
             if result.returncode == 0:
                 logger.info(f"Agent {agent} succeeded")
                 return True
             else:
-                logger.error(f"Agent {agent} failed: {result.stderr.decode()[:200]}")
+                if stderr:
+                    for line in stderr.splitlines():
+                        logger.error(f"[{agent}] {line}")
+                logger.error(f"Agent {agent} failed (exit {result.returncode})")
                 return False
         except FileNotFoundError:
             logger.error(f"Agent not found: {agent}")
