@@ -8,6 +8,7 @@ import time
 import logging
 import pathlib
 import re
+import json
 import urllib.request
 import urllib.error
 import os
@@ -222,8 +223,70 @@ class TaskRunner:
             logger.warning(f"File missing: {full_path}")
         return exists
 
+    _UUID_RE = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I
+    )
+    _SESSIONS_FILE = pathlib.Path.home() / ".heartbeat" / "sessions.json"
+
+    def _load_sessions(self) -> dict:
+        if self._SESSIONS_FILE.exists():
+            try:
+                return json.loads(self._SESSIONS_FILE.read_text())
+            except Exception:
+                pass
+        return {}
+
+    def _save_session(self, name: str, uuid: str) -> None:
+        sessions = self._load_sessions()
+        sessions[name] = uuid
+        try:
+            self._SESSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self._SESSIONS_FILE.write_text(json.dumps(sessions, indent=2))
+            logger.info(f"Saved session '{name}' -> {uuid}")
+        except Exception as e:
+            logger.warning(f"Could not save session mapping: {e}")
+
+    def _resolve_claude_params(self, params: list, cwd: str) -> tuple:
+        """Resolve --resume <name> to --resume <uuid> or --name <name>.
+
+        Returns (resolved_params, session_name_to_capture | None).
+        session_name_to_capture is set when a new named session is being started
+        so the caller can save the UUID after a successful run.
+        """
+        for i, p in enumerate(params):
+            if p in ("--resume", "-r") and i + 1 < len(params):
+                name = params[i + 1]
+                if self._UUID_RE.match(name):
+                    return params, None  # already a UUID, nothing to do
+                sessions = self._load_sessions()
+                if name in sessions:
+                    uuid = sessions[name]
+                    logger.info(f"Resolved session name '{name}' -> {uuid}")
+                    return params[:i] + ["--resume", uuid] + params[i + 2 :], None
+                else:
+                    # First run: start a new session with this display name
+                    logger.info(f"No saved session for '{name}', starting new named session")
+                    return params[:i] + ["--name", name] + params[i + 2 :], name
+        return params, None
+
+    def _capture_session_uuid(self, name: str, cwd: str) -> None:
+        """Find the most recently modified session JSONL for cwd and save name->uuid."""
+        encoded = cwd.replace("/", "-") if cwd else None
+        if not encoded:
+            return
+        projects_dir = pathlib.Path.home() / ".claude" / "projects"
+        proj_dir = projects_dir / encoded
+        if not proj_dir.exists():
+            return
+        jsonl_files = sorted(proj_dir.glob("*.jsonl"), key=lambda f: f.stat().st_mtime, reverse=True)
+        if jsonl_files:
+            uuid = jsonl_files[0].stem
+            if self._UUID_RE.match(uuid):
+                self._save_session(name, uuid)
+
     def _run_agent(self, task: dict, ctx: dict) -> bool:
         import shlex
+        import shutil
 
         agent = task.get("agent") or task.get("name") or task.get("type")
         prompt = task.get("prompt", "")
@@ -236,7 +299,11 @@ class TaskRunner:
 
         params = shlex.split(params_str) if params_str else []
 
+        cwd = str(pathlib.Path(folder).expanduser()) if folder and folder != "." else None
+
+        capture_session_name = None
         if agent == "claude":
+            params, capture_session_name = self._resolve_claude_params(params, cwd or "")
             cmd = ["claude", "-p"] + params + [prompt]
         elif agent == "opencode":
             cmd = ["opencode", "run"] + params + [prompt]
@@ -245,11 +312,30 @@ class TaskRunner:
         else:
             cmd = [agent] + params + [prompt]
 
-        cwd = str(pathlib.Path(folder).expanduser()) if folder and folder != "." else None
+        # Augment PATH so cron environments can find binaries installed via
+        # Homebrew, nvm, npm global, etc.
+        extra_paths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            str(pathlib.Path.home() / ".local" / "bin"),
+            str(pathlib.Path.home() / ".npm-global" / "bin"),
+            str(pathlib.Path.home() / ".nvm" / "versions" / "node" / "current" / "bin"),
+        ]
+        env = os.environ.copy()
+        current_path = env.get("PATH", "")
+        env["PATH"] = ":".join(p for p in extra_paths if p not in current_path) + (
+            ":" + current_path if current_path else ""
+        )
+
+        binary = cmd[0]
+        resolved = shutil.which(binary, path=env["PATH"])
+        if resolved:
+            cmd[0] = resolved
+
         logger.info(f"Running agent: {agent} in {cwd or '.'}: {cmd}")
 
         try:
-            result = subprocess.run(cmd, capture_output=True, timeout=600, cwd=cwd)
+            result = subprocess.run(cmd, capture_output=True, timeout=600, cwd=cwd, env=env)
             stdout = result.stdout.decode(errors="replace").strip()
             stderr = result.stderr.decode(errors="replace").strip()
             if stdout:
@@ -257,6 +343,8 @@ class TaskRunner:
                     logger.info(f"[{agent}] {line}")
             if result.returncode == 0:
                 logger.info(f"Agent {agent} succeeded")
+                if capture_session_name and cwd:
+                    self._capture_session_uuid(capture_session_name, cwd)
                 return True
             else:
                 if stderr:
