@@ -274,6 +274,16 @@ launchctl load ~/Library/LaunchAgents/com.heartbeat.mycheck.plist
 launchctl unload ~/Library/LaunchAgents/com.heartbeat.mycheck.plist
 ```
 
+## Development
+
+After making changes to the repo, deploy them to `~/.heartbeat`:
+
+```bash
+./deploy.sh
+```
+
+This copies `heartbeat.py`, the `heartbeat` CLI, any other shell scripts in the repo root, and all plugins to `~/.heartbeat/`, creating required directories if they don't exist.
+
 ## Testing
 
 ```bash

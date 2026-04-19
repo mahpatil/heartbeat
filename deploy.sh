@@ -18,14 +18,27 @@ log_warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 
 log_info "Deploying from $REPO_DIR to $HEARTBEAT_DIR"
 
-# Core files
+# Ensure directories exist
+mkdir -p "$HEARTBEAT_DIR/plugins" "$HEARTBEAT_DIR/jobs" "$HEARTBEAT_DIR/logs"
+
+# Core Python script
 cp "$REPO_DIR/heartbeat.py" "$HEARTBEAT_DIR/heartbeat.py"
-cp "$REPO_DIR/heartbeat" "$HEARTBEAT_DIR/heartbeat"
-chmod +x "$HEARTBEAT_DIR/heartbeat.py" "$HEARTBEAT_DIR/heartbeat"
-log_info "Copied heartbeat.py and heartbeat CLI"
+chmod +x "$HEARTBEAT_DIR/heartbeat.py"
+log_info "Copied heartbeat.py"
+
+# Bash CLI and any other shell scripts in repo root
+for script in "$REPO_DIR"/heartbeat "$REPO_DIR"/*.sh; do
+    [[ -f "$script" ]] || continue
+    fname="$(basename "$script")"
+    cp "$script" "$HEARTBEAT_DIR/$fname"
+    chmod +x "$HEARTBEAT_DIR/$fname"
+    log_info "Copied $fname"
+done
 
 # Plugins
-cp "$REPO_DIR/plugins/"*.py "$HEARTBEAT_DIR/plugins/"
-log_info "Copied plugins"
+if compgen -G "$REPO_DIR/plugins/*.py" > /dev/null 2>&1; then
+    cp "$REPO_DIR/plugins/"*.py "$HEARTBEAT_DIR/plugins/"
+    log_info "Copied plugins"
+fi
 
 log_info "Deploy complete"
