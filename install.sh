@@ -57,8 +57,13 @@ ${DOWNLOAD} "${RAW_URL}/heartbeat" > "${HEARTBEAT_DIR}/heartbeat" || {
     log_error "Failed to download heartbeat"
     exit 1
 }
+# Download agent runner
+${DOWNLOAD} "${RAW_URL}/heartbeat-agent-runner.sh" > "${HEARTBEAT_DIR}/heartbeat-agent-runner.sh" || {
+    log_error "Failed to download heartbeat-agent-runner.sh"
+    exit 1
+}
 
-chmod +x "${HEARTBEAT_DIR}/heartbeat.py" "${HEARTBEAT_DIR}/heartbeat"
+chmod +x "${HEARTBEAT_DIR}/heartbeat.py" "${HEARTBEAT_DIR}/heartbeat" "${HEARTBEAT_DIR}/heartbeat-agent-runner.sh"
 
 # Add to PATH
 SHELL_RC="${HOME}/.zshrc"

@@ -34,7 +34,7 @@ The project has two entry points:
 ### Core classes in `heartbeat.py`
 
 - **`Heartbeat`** — Orchestrates a job run. Loads config, checks `run_once_at` gate, iterates tasks, calls `on_fail` commands, sends notifications, and prints `REMOVE_CRON:<name>` to stdout if a `run_once_at` job completes (the bash CLI watches for this signal to remove the cron entry).
-- **`TaskRunner`** — Executes individual tasks by type: `run` (shell), `url` (HTTP check), `file_exists`, `agent`/`claude`/`opencode`/`codex` (spawns CLI subprocess), `agent_api` (calls Anthropic or OpenAI SDK directly).
+- **`TaskRunner`** — Executes individual tasks by type: `run` (shell), `url` (HTTP check), `file_exists`, `agent`/`claude`/`opencode`/`codex` (delegates to `heartbeat-agent-runner.sh`), `agent_api` (calls Anthropic or OpenAI SDK directly).
 - **`ConfigParser`** — Routes `.yaml`/`.yml` files to YAML parsing and `.htb` files to the natural-language parser (`_parse_nl`).
 - **`parse_simple_yaml()`** — Stdlib-only fallback YAML parser used when PyYAML is not installed.
 
@@ -54,6 +54,7 @@ Notification plugins extend `BasePlugin` (ABC in `plugins/base.py`). Register ne
 ~/.heartbeat/
 ├── heartbeat.py      # Installed core script
 ├── heartbeat         # Installed CLI
+├── heartbeat-agent-runner.sh  # Installed agent CLI runner
 ├── jobs/             # Job configs (*.yaml, *.htb)
 ├── logs/             # Per-job log files (<name>.log)
 └── plugins/          # Notification plugins

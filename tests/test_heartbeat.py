@@ -5,6 +5,8 @@ import os
 import sys
 import tempfile
 import pathlib
+from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
@@ -191,6 +193,22 @@ class TestTaskRunner:
         runner = TaskRunner()
         result = runner._check_file("/nonexistent/file.txt", {})
         assert result is False
+
+    def test_run_agent_uses_shell_runner(self):
+        """Test agent tasks are delegated to shell runner script"""
+        runner = TaskRunner()
+        task = {"agent": "opencode", "prompt": "Review code"}
+
+        fake_result = SimpleNamespace(returncode=0, stdout=b"ok", stderr=b"")
+        with patch("heartbeat.subprocess.run", return_value=fake_result) as mock_run:
+            result = runner._run_agent(task, {"folder": "."})
+
+        assert result is True
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0].endswith("heartbeat-agent-runner.sh")
+        assert cmd[1] == "opencode"
+        assert cmd[2] == "."
+        assert cmd[3] == "Review code"
 
 
 class TestHeartbeatClass:
