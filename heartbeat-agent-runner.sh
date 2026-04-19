@@ -27,6 +27,16 @@ fi
 
 export HOME="${real_home}"
 
+# Load API keys from ~/.heartbeat/.env (cron has no Keychain access)
+# File format: KEY=value, one per line, lines starting with # ignored
+env_file="${real_home}/.heartbeat/.env"
+if [[ -f "$env_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
+        export "$line"
+    done < "$env_file"
+fi
+
 extra_paths=(
     "/opt/homebrew/bin"
     "/usr/local/bin"

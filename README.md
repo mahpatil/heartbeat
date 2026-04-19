@@ -248,6 +248,17 @@ Signature: `heartbeat-agent-runner.sh [-l logfile] <agent> <cwd> <prompt> [param
 | `prompt` | Prompt string (or shell command for `shell` agent) |
 | `params...` | Extra flags passed to the CLI (e.g. `--dangerously-skip-permissions`) |
 
+#### macOS Keychain / "Not logged in" in cron
+
+Cron runs without a user session, so it cannot access the macOS Keychain where Claude Code stores its OAuth token. Fix: create `~/.heartbeat/.env` with your API key and the runner will load it automatically:
+
+```bash
+# ~/.heartbeat/.env
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The file is loaded before any agent is invoked. Lines starting with `#` and blank lines are ignored.
+
 Use `heartbeat.py` (via `heartbeat add-cron`) when you need multi-task jobs, `run_once_at`, notifications, or YAML configs. Use the runner directly when you just need one agent prompt on a schedule.
 
 ### Option 1: Cron (Recommended for Linux/macOS)
