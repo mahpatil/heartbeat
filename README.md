@@ -184,6 +184,8 @@ Each agent maps to its non-interactive subcommand:
 | `opencode` | `opencode run [params] "<prompt>"` |
 | `codex` | `codex exec [params] "<prompt>"` |
 
+Agent commands are executed through `heartbeat-agent-runner.sh`, which normalizes `HOME` and `PATH` for cron environments before invoking the selected CLI.
+
 ### Natural Language (`.htb`)
 
 ```natural-language
@@ -303,6 +305,7 @@ python3 -m pytest tests/ --cov=heartbeat --cov-report=term-missing
 ~/.heartbeat/
 ├── heartbeat.py       # Core script
 ├── heartbeat         # CLI wrapper
+├── heartbeat-agent-runner.sh  # Agent CLI runner with real HOME/PATH context
 ├── plugins/           # Notification plugins
 │   ├── telegram.py   # Telegram notifications
 │   ├── sms.py        # Stub (future)

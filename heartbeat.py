@@ -285,8 +285,8 @@ class TaskRunner:
                 self._save_session(name, uuid)
 
     def _run_agent(self, task: dict, ctx: dict) -> bool:
+        import pwd
         import shlex
-        import shutil
 
         agent = task.get("agent") or task.get("name") or task.get("type")
         prompt = task.get("prompt", "")
@@ -298,44 +298,30 @@ class TaskRunner:
             return False
 
         params = shlex.split(params_str) if params_str else []
+        try:
+            real_home = pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir)
+        except Exception:
+            real_home = pathlib.Path.home()
 
-        cwd = str(pathlib.Path(folder).expanduser()) if folder and folder != "." else None
+        if folder and folder != ".":
+            cwd = str(pathlib.Path(folder.replace("~", str(real_home))))
+        else:
+            cwd = "."
 
         capture_session_name = None
         if agent == "claude":
-            params, capture_session_name = self._resolve_claude_params(params, cwd or "")
-            cmd = ["claude", "-p"] + params + [prompt]
-        elif agent == "opencode":
-            cmd = ["opencode", "run"] + params + [prompt]
-        elif agent == "codex":
-            cmd = ["codex", "exec"] + params + [prompt]
-        else:
-            cmd = [agent] + params + [prompt]
+            params, capture_session_name = self._resolve_claude_params(params, cwd)
 
-        # Augment PATH so cron environments can find binaries installed via
-        # Homebrew, nvm, npm global, etc.
-        extra_paths = [
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            str(pathlib.Path.home() / ".local" / "bin"),
-            str(pathlib.Path.home() / ".npm-global" / "bin"),
-            str(pathlib.Path.home() / ".nvm" / "versions" / "node" / "current" / "bin"),
-        ]
-        env = os.environ.copy()
-        current_path = env.get("PATH", "")
-        env["PATH"] = ":".join(p for p in extra_paths if p not in current_path) + (
-            ":" + current_path if current_path else ""
-        )
+        runner_script = pathlib.Path(__file__).with_name("heartbeat-agent-runner.sh")
+        if not runner_script.exists():
+            logger.error(f"Agent runner script not found: {runner_script}")
+            return False
 
-        binary = cmd[0]
-        resolved = shutil.which(binary, path=env["PATH"])
-        if resolved:
-            cmd[0] = resolved
-
-        logger.info(f"Running agent: {agent} in {cwd or '.'}: {cmd}")
+        cmd = [str(runner_script), agent, cwd, prompt] + params
+        logger.info(f"Running agent via shell runner: {agent} in {cwd}")
 
         try:
-            result = subprocess.run(cmd, capture_output=True, timeout=600, cwd=cwd, env=env)
+            result = subprocess.run(cmd, capture_output=True, timeout=600)
             stdout = result.stdout.decode(errors="replace").strip()
             stderr = result.stderr.decode(errors="replace").strip()
             if stdout:
@@ -343,7 +329,7 @@ class TaskRunner:
                     logger.info(f"[{agent}] {line}")
             if result.returncode == 0:
                 logger.info(f"Agent {agent} succeeded")
-                if capture_session_name and cwd:
+                if capture_session_name and cwd != ".":
                     self._capture_session_uuid(capture_session_name, cwd)
                 return True
             else:
@@ -352,8 +338,11 @@ class TaskRunner:
                         logger.error(f"[{agent}] {line}")
                 logger.error(f"Agent {agent} failed (exit {result.returncode})")
                 return False
+        except PermissionError:
+            logger.error(f"Agent runner is not executable: {runner_script}")
+            return False
         except FileNotFoundError:
-            logger.error(f"Agent not found: {agent}")
+            logger.error(f"Agent runner not found: {runner_script}")
             return False
         except subprocess.TimeoutExpired:
             logger.error(f"Agent timeout: {agent}")
