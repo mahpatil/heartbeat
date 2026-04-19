@@ -230,9 +230,23 @@ For a single agent prompt on a schedule, call `heartbeat-agent-runner.sh` direct
 
 # With log file (recommended)
 */15 * * * * ~/.heartbeat/heartbeat-agent-runner.sh -l ~/.heartbeat/logs/inbox-check.log claude ~ "Check my inbox and summarize urgent items" --dangerously-skip-permissions
+
+# Run inside a specific project directory
+*/30 * * * * ~/.heartbeat/heartbeat-agent-runner.sh -l ~/.heartbeat/logs/myapp.log claude ~/projects/myapp "Review recent changes and flag any issues" --dangerously-skip-permissions
+
+# Run a shell command inside a directory
+*/5 * * * * ~/.heartbeat/heartbeat-agent-runner.sh -l ~/.heartbeat/logs/build.log shell ~/projects/myapp "npm run build && echo done"
 ```
 
 Signature: `heartbeat-agent-runner.sh [-l logfile] <agent> <cwd> <prompt> [params...]`
+
+| Arg | Description |
+|-----|-------------|
+| `-l logfile` | Optional. Append stdout+stderr to this file |
+| `agent` | `claude`, `opencode`, `codex`, or `shell` |
+| `cwd` | Directory to `cd` into before running (`~` is expanded). Use `.` to skip |
+| `prompt` | Prompt string (or shell command for `shell` agent) |
+| `params...` | Extra flags passed to the CLI (e.g. `--dangerously-skip-permissions`) |
 
 Use `heartbeat.py` (via `heartbeat add-cron`) when you need multi-task jobs, `run_once_at`, notifications, or YAML configs. Use the runner directly when you just need one agent prompt on a schedule.
 
