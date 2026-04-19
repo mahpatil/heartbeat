@@ -1,16 +1,18 @@
 #!/bin/bash
 # Heartbeat agent runner
-# Runs an agent on a repeating interval in the current user context (Keychain-safe).
-# Usage: heartbeat-agent-runner.sh [-l logfile] [-i interval] <agent> <cwd> <prompt> [params...]
+# Runs an agent in the current user context (Keychain-safe).
 #
-# Interval examples: 30s, 15m, 2h, 3600 (bare number = seconds). Default: 15m
-# Agent values:      claude, opencode, codex, shell
+# Modes:
+#   (no flags)        Run once immediately and exit
+#   -i/--interval     Run repeatedly, sleeping between runs (daemon)
+#   --at HH:MM        Sleep until that time today (or tomorrow if past), run once, exit
 #
-# Example (foreground):
-#   heartbeat-agent-runner.sh -i 30m -l ~/.heartbeat/logs/myapp.log claude ~/myapp "Review changes"
+# Usage: heartbeat-agent-runner.sh [-l logfile] [-i interval | --at HH:MM] <agent> <cwd> <prompt> [params...]
 #
-# Example (background, survives terminal close):
-#   nohup heartbeat-agent-runner.sh -i 1h claude ~ "Daily summary" >> ~/.heartbeat/logs/summary.log 2>&1 &
+# Examples:
+#   heartbeat-agent-runner.sh claude ~/myapp "Review changes"
+#   heartbeat-agent-runner.sh --at 01:00 -l ~/.heartbeat/logs/nightly.log claude ~/myapp "Nightly review"
+#   nohup heartbeat-agent-runner.sh -i 30m -l ~/.heartbeat/logs/myapp.log claude ~/myapp "Review changes" &
 
 parse_interval() {
     local val="$1"
@@ -22,14 +24,33 @@ parse_interval() {
     esac
 }
 
+# Seconds until next occurrence of HH:MM (today or tomorrow if already past)
+seconds_until() {
+    local target="$1"  # HH:MM
+    local now target_ts now_ts secs
+    now_ts=$(date +%s)
+    target_ts=$(date -j -f "%H:%M" "$target" +%s 2>/dev/null) || {
+        echo "Invalid time format '$target'. Use HH:MM (e.g. 01:00)" >&2
+        exit 1
+    }
+    secs=$(( target_ts - now_ts ))
+    # If target is in the past (even by a second), schedule for tomorrow
+    if [[ $secs -le 0 ]]; then
+        secs=$(( secs + 86400 ))
+    fi
+    echo "$secs"
+}
+
 log_file=""
-interval=900  # default 15 minutes
+interval=""
+run_at=""
 
 while [[ "${1:-}" == -* ]]; do
     case "${1:-}" in
-        -l)          log_file="$2";                          shift 2 ;;
-        -i|--interval) interval="$(parse_interval "$2")";   shift 2 ;;
-        *)           break ;;
+        -l)              log_file="$2";                        shift 2 ;;
+        -i|--interval)   interval="$(parse_interval "$2")";   shift 2 ;;
+        --at)            run_at="$2";                          shift 2 ;;
+        *)               break ;;
     esac
 done
 
@@ -40,7 +61,12 @@ shift 3 2>/dev/null || true
 params=("$@")
 
 if [[ -z "$agent" || -z "$prompt" ]]; then
-    echo "Usage: heartbeat-agent-runner.sh [-l logfile] [-i interval] <agent> <cwd> <prompt> [params...]" >&2
+    echo "Usage: heartbeat-agent-runner.sh [-l logfile] [-i interval | --at HH:MM] <agent> <cwd> <prompt> [params...]" >&2
+    exit 1
+fi
+
+if [[ -n "$interval" && -n "$run_at" ]]; then
+    echo "ERROR: -i/--interval and --at are mutually exclusive" >&2
     exit 1
 fi
 
@@ -93,9 +119,22 @@ run_once() {
 
 trap 'echo "--- $(date) [stopped] ---"; exit 0' SIGTERM SIGINT
 
-echo "--- $(date) [starting: agent=$agent interval=${interval}s] ---"
-while true; do
+if [[ -n "$run_at" ]]; then
+    # One-shot: sleep until HH:MM, run once, exit
+    secs="$(seconds_until "$run_at")"
+    wake_time="$(date -j -v+${secs}S +"%Y-%m-%d %H:%M:%S" 2>/dev/null || date -d "+${secs} seconds" +"%Y-%m-%d %H:%M:%S")"
+    echo "--- $(date) [scheduled: agent=$agent at=$run_at (~${secs}s, wakes $wake_time)] ---"
+    sleep "$secs"
     run_once
-    echo "--- sleeping ${interval}s ---"
-    sleep "$interval"
-done
+elif [[ -n "$interval" ]]; then
+    # Daemon: run immediately then repeat every interval
+    echo "--- $(date) [starting: agent=$agent interval=${interval}s] ---"
+    while true; do
+        run_once
+        echo "--- sleeping ${interval}s ---"
+        sleep "$interval"
+    done
+else
+    # Immediate one-shot
+    run_once
+fi

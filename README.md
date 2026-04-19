@@ -222,25 +222,30 @@ The heartbeat runs automatically when added to cron:
 
 ### Option 0: Direct runner (no config file, Keychain-safe)
 
-`heartbeat-agent-runner.sh` runs as a long-lived daemon in your **user session** — it invokes the agent, sleeps, then repeats. Because it runs in user context it has full Keychain access, so Claude's OAuth login works without any API key workarounds.
+`heartbeat-agent-runner.sh` runs in your **user session** so it has full Keychain access — Claude's OAuth login works without any API key workarounds. Three modes:
+
+| Mode | Flag | Behaviour |
+|------|------|-----------|
+| Immediate | _(none)_ | Run once right now and exit |
+| Scheduled | `--at HH:MM` | Sleep until that time, run once, exit |
+| Daemon | `-i interval` | Run now, sleep, repeat forever |
 
 ```bash
-# Foreground (Ctrl-C to stop)
-~/.heartbeat/heartbeat-agent-runner.sh -i 15m claude ~ "Summarize my inbox"
+# Run once immediately
+~/.heartbeat/heartbeat-agent-runner.sh claude ~/myapp "Summarize recent changes"
 
-# Background, survives terminal close
+# Run once at 01:00 AM (sleeps until then, then exits)
+nohup ~/.heartbeat/heartbeat-agent-runner.sh \
+  --at 01:00 \
+  -l ~/.heartbeat/logs/nightly.log \
+  claude ~/myapp "Nightly code review" --dangerously-skip-permissions \
+  &
+
+# Daemon — run every 30 minutes (Ctrl-C or kill to stop)
 nohup ~/.heartbeat/heartbeat-agent-runner.sh \
   -i 30m \
   -l ~/.heartbeat/logs/inbox.log \
   claude ~ "Summarize my inbox" --dangerously-skip-permissions \
-  &
-
-# Run inside a specific project directory every hour
-nohup ~/.heartbeat/heartbeat-agent-runner.sh \
-  -i 1h \
-  -l ~/.heartbeat/logs/myapp.log \
-  claude ~/projects/myapp "Review recent changes and flag any issues" \
-  --dangerously-skip-permissions \
   &
 
 # Shell command in a directory every 5 minutes
@@ -251,20 +256,21 @@ nohup ~/.heartbeat/heartbeat-agent-runner.sh \
   &
 ```
 
-Signature: `heartbeat-agent-runner.sh [-l logfile] [-i interval] <agent> <cwd> <prompt> [params...]`
+Signature: `heartbeat-agent-runner.sh [-l logfile] [-i interval | --at HH:MM] <agent> <cwd> <prompt> [params...]`
 
 | Flag/Arg | Description |
 |----------|-------------|
 | `-l logfile` | Append stdout+stderr to this file |
-| `-i interval` | How long to sleep between runs. `30s`, `15m`, `2h`, or bare seconds. Default: `15m` |
+| `--at HH:MM` | Sleep until this time today (tomorrow if already past), run once, exit |
+| `-i interval` | Sleep between repeated runs: `30s`, `15m`, `2h`, or bare seconds |
 | `agent` | `claude`, `opencode`, `codex`, or `shell` |
-| `cwd` | Directory to `cd` into (`~` is expanded). Use `.` to stay in current dir |
+| `cwd` | Directory to `cd` into (`~` is expanded). Use `.` for current dir |
 | `prompt` | Prompt string (or shell command for `shell` agent) |
 | `params...` | Extra flags passed to the CLI (e.g. `--dangerously-skip-permissions`) |
 
-To start automatically at login, add a **launchd UserAgent** (see Option 2 below) that runs `heartbeat-agent-runner.sh` — launchd will keep it alive and restart it if it crashes.
+To start automatically at login, add a **launchd UserAgent** (see Option 2 below) pointing to `heartbeat-agent-runner.sh`.
 
-Use `heartbeat.py` (via `heartbeat add-cron`) when you need multi-task jobs, `run_once_at`, notifications, or YAML configs. Use the runner directly when you just need one agent prompt on a repeating schedule.
+Use `heartbeat.py` (via `heartbeat add-cron`) when you need multi-task jobs, `run_once_at`, notifications, or YAML configs. Use the runner directly when you just need one agent prompt on a schedule.
 
 ### Option 1: Cron (Recommended for Linux/macOS)
 
