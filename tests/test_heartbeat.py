@@ -207,7 +207,7 @@ class TestTaskRunner:
         cmd = mock_run.call_args[0][0]
         assert cmd[0].endswith("heartbeat-agent-runner.sh")
         assert cmd[1] == "opencode"
-        assert cmd[2] == "."
+        assert cmd[2] == "~"
         assert cmd[3] == "Review code"
 
 

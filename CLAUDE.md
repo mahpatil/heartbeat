@@ -30,11 +30,12 @@ The project has two entry points:
 
 - **`heartbeat.py`** — Python core: parses configs, runs tasks, manages `run_once_at` logic, sends notifications
 - **`heartbeat`** — Bash CLI wrapper: manages job files in `~/.heartbeat/jobs/`, adds/removes crontab entries tagged `# HEARTBEAT`
+- **`heartbeat-agent-runner.sh`** — Can also be called directly from cron (no config file needed) for single-agent prompts: `heartbeat-agent-runner.sh [-l logfile] <agent> <cwd> <prompt> [params...]`
 
 ### Core classes in `heartbeat.py`
 
 - **`Heartbeat`** — Orchestrates a job run. Loads config, checks `run_once_at` gate, iterates tasks, calls `on_fail` commands, sends notifications, and prints `REMOVE_CRON:<name>` to stdout if a `run_once_at` job completes (the bash CLI watches for this signal to remove the cron entry).
-- **`TaskRunner`** — Executes individual tasks by type: `run` (shell), `url` (HTTP check), `file_exists`, `agent`/`claude`/`opencode`/`codex` (delegates to `heartbeat-agent-runner.sh`), `agent_api` (calls Anthropic or OpenAI SDK directly).
+- **`TaskRunner`** — Executes individual tasks by type: `run` (shell — routed through `heartbeat-agent-runner.sh` for cron-safe HOME/PATH), `url` (HTTP check), `file_exists`, `agent`/`claude`/`opencode`/`codex` (delegates to `heartbeat-agent-runner.sh`), `agent_api` (calls Anthropic or OpenAI SDK directly). All shell and agent execution goes through the runner; `folder` defaults to `~` when unset.
 - **`ConfigParser`** — Routes `.yaml`/`.yml` files to YAML parsing and `.htb` files to the natural-language parser (`_parse_nl`).
 - **`parse_simple_yaml()`** — Stdlib-only fallback YAML parser used when PyYAML is not installed.
 

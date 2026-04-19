@@ -1,6 +1,13 @@
 #!/bin/bash
 # Heartbeat agent runner
 # Executes CLI agents with a stable HOME/PATH context (cron-safe).
+# Usage: heartbeat-agent-runner.sh [-l logfile] <agent> <cwd> <prompt> [params...]
+
+log_file=""
+if [[ "${1:-}" == "-l" ]]; then
+    log_file="$2"
+    shift 2
+fi
 
 agent="${1:-}"
 requested_cwd="${2:-.}"
@@ -36,12 +43,21 @@ for p in "${extra_paths[@]}"; do
 done
 export PATH
 
+if [[ -n "$log_file" ]]; then
+    mkdir -p "$(dirname "$log_file")"
+    exec >> "$log_file" 2>&1
+    echo "--- $(date) ---"
+fi
+
 run_cwd="${requested_cwd}"
 if [[ "$run_cwd" == "~"* ]]; then
     run_cwd="${real_home}${run_cwd:1}"
 fi
 
 case "$agent" in
+    shell)
+        cmd=(bash -c "$prompt")
+        ;;
     claude)
         cmd=(claude -p "${params[@]}" "$prompt")
         ;;

@@ -95,10 +95,9 @@ tasks:
   path: "data.json"
 
 - agent: claude
-  
+  prompt: "Review this folder for issues"
 
 - agent: opencode
-  
   prompt: "Check for bugs in this folder"
 
 - agent_api:
@@ -163,28 +162,29 @@ Pass CLI arguments to agents via `params` (or `args`):
 - agent: claude
   params: "--dangerously-skip-permissions"
   prompt: "Run ls"
-  # Runs: claude -p --dangerously-skip-permissions "In <folder>: Run ls"
+  # Runs: claude -p --dangerously-skip-permissions "Run ls"
 
 - agent: opencode
   params: "--model anthropic/claude-sonnet-4-6"
   prompt: "Review code"
-  # Runs: opencode run --model anthropic/claude-sonnet-4-6 "In <folder>: Review code"
+  # Runs: opencode run --model anthropic/claude-sonnet-4-6 "Review code"
 
 - agent: codex
   params: "--model o3"
   prompt: "Fix the bug"
-  # Runs: codex exec --model o3 "In <folder>: Fix the bug"
+  # Runs: codex exec --model o3 "Fix the bug"
 ```
 
 Each agent maps to its non-interactive subcommand:
 
 | Agent | Command format |
 |-------|---------------|
+| `shell` | `bash -c "<command>"` (used internally for `run` tasks) |
 | `claude` | `claude -p [params] "<prompt>"` |
 | `opencode` | `opencode run [params] "<prompt>"` |
 | `codex` | `codex exec [params] "<prompt>"` |
 
-Agent commands are executed through `heartbeat-agent-runner.sh`, which normalizes `HOME` and `PATH` for cron environments before invoking the selected CLI.
+All shell and agent execution goes through `heartbeat-agent-runner.sh`, which normalizes `HOME` and `PATH` for cron environments before running any command. This means `run` tasks also have a stable home directory context. When `folder` is not set (or is `.`), the working directory defaults to `~`.
 
 ### Natural Language (`.htb`)
 
@@ -219,6 +219,22 @@ Every 15 minutes:
 ## Scheduling
 
 The heartbeat runs automatically when added to cron:
+
+### Option 0: Direct runner (no config file)
+
+For a single agent prompt on a schedule, call `heartbeat-agent-runner.sh` directly without a config file or `heartbeat.py`:
+
+```bash
+# Basic — output goes to cron mail
+*/15 * * * * ~/.heartbeat/heartbeat-agent-runner.sh claude ~ "Check my inbox and summarize urgent items" --dangerously-skip-permissions
+
+# With log file (recommended)
+*/15 * * * * ~/.heartbeat/heartbeat-agent-runner.sh -l ~/.heartbeat/logs/inbox-check.log claude ~ "Check my inbox and summarize urgent items" --dangerously-skip-permissions
+```
+
+Signature: `heartbeat-agent-runner.sh [-l logfile] <agent> <cwd> <prompt> [params...]`
+
+Use `heartbeat.py` (via `heartbeat add-cron`) when you need multi-task jobs, `run_once_at`, notifications, or YAML configs. Use the runner directly when you just need one agent prompt on a schedule.
 
 ### Option 1: Cron (Recommended for Linux/macOS)
 

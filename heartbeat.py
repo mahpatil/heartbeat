@@ -177,17 +177,42 @@ class TaskRunner:
             logger.warning(f"Unknown task type: {task_type}")
             return False
 
+    def _find_runner(self) -> pathlib.Path:
+        runner = pathlib.Path(__file__).with_name("heartbeat-agent-runner.sh")
+        if not runner.exists():
+            logger.error(f"Agent runner script not found: {runner}")
+            return None
+        return runner
+
     def _run_shell(self, cmd: str, ctx: dict) -> bool:
         if not cmd:
             return False
+
+        runner = self._find_runner()
+        if not runner:
+            return False
+
+        folder = ctx.get("folder") or "~"
+        cwd = folder if folder and folder != "." else "~"
+
         try:
-            result = subprocess.run(cmd, shell=True, capture_output=True, timeout=300)
+            result = subprocess.run(
+                [str(runner), "shell", cwd, cmd],
+                capture_output=True,
+                timeout=300,
+            )
+            stdout = result.stdout.decode(errors="replace").strip()
+            stderr = result.stderr.decode(errors="replace").strip()
+            if stdout:
+                for line in stdout.splitlines():
+                    logger.info(f"[shell] {line}")
             if result.returncode == 0:
                 logger.info(f"Command succeeded: {cmd[:50]}...")
             else:
-                logger.error(
-                    f"Command failed: {cmd[:50]}... -> {result.stderr.decode()[:100]}"
-                )
+                if stderr:
+                    logger.error(f"Command failed: {cmd[:50]}... -> {stderr[:200]}")
+                else:
+                    logger.error(f"Command failed: {cmd[:50]}... (exit {result.returncode})")
             return result.returncode == 0
         except subprocess.TimeoutExpired:
             logger.error(f"Command timeout: {cmd[:50]}...")
@@ -214,8 +239,8 @@ class TaskRunner:
     def _check_file(self, path: str, ctx: dict) -> bool:
         if not path:
             return False
-        folder = ctx.get("folder", "")
-        full_path = pathlib.Path(folder) / path
+        folder = ctx.get("folder") or "~"
+        full_path = pathlib.Path(folder).expanduser() / path
         exists = full_path.exists()
         if exists:
             logger.info(f"File exists: {full_path}")
@@ -285,12 +310,11 @@ class TaskRunner:
                 self._save_session(name, uuid)
 
     def _run_agent(self, task: dict, ctx: dict) -> bool:
-        import pwd
         import shlex
 
         agent = task.get("agent") or task.get("name") or task.get("type")
         prompt = task.get("prompt", "")
-        folder = ctx.get("folder", ".")
+        folder = ctx.get("folder") or "~"
         params_str = task.get("params") or task.get("args", "")
 
         if not agent or not prompt:
@@ -298,26 +322,21 @@ class TaskRunner:
             return False
 
         params = shlex.split(params_str) if params_str else []
-        try:
-            real_home = pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir)
-        except Exception:
-            real_home = pathlib.Path.home()
-
-        if folder and folder != ".":
-            cwd = str(pathlib.Path(folder.replace("~", str(real_home))))
-        else:
-            cwd = "."
+        cwd = folder if folder and folder != "." else "~"
 
         capture_session_name = None
         if agent == "claude":
-            params, capture_session_name = self._resolve_claude_params(params, cwd)
+            # Resolve absolute cwd for session UUID capture (runner handles ~ itself)
+            abs_cwd = str(pathlib.Path(cwd.replace("~", str(pathlib.Path.home()))))
+            params, capture_session_name = self._resolve_claude_params(params, abs_cwd)
+        else:
+            abs_cwd = None
 
-        runner_script = pathlib.Path(__file__).with_name("heartbeat-agent-runner.sh")
-        if not runner_script.exists():
-            logger.error(f"Agent runner script not found: {runner_script}")
+        runner = self._find_runner()
+        if not runner:
             return False
 
-        cmd = [str(runner_script), agent, cwd, prompt] + params
+        cmd = [str(runner), agent, cwd, prompt] + params
         logger.info(f"Running agent via shell runner: {agent} in {cwd}")
 
         try:
@@ -329,8 +348,8 @@ class TaskRunner:
                     logger.info(f"[{agent}] {line}")
             if result.returncode == 0:
                 logger.info(f"Agent {agent} succeeded")
-                if capture_session_name and cwd != ".":
-                    self._capture_session_uuid(capture_session_name, cwd)
+                if capture_session_name and abs_cwd:
+                    self._capture_session_uuid(capture_session_name, abs_cwd)
                 return True
             else:
                 if stderr:
@@ -339,10 +358,10 @@ class TaskRunner:
                 logger.error(f"Agent {agent} failed (exit {result.returncode})")
                 return False
         except PermissionError:
-            logger.error(f"Agent runner is not executable: {runner_script}")
+            logger.error(f"Agent runner is not executable: {runner}")
             return False
         except FileNotFoundError:
-            logger.error(f"Agent runner not found: {runner_script}")
+            logger.error(f"Agent runner not found: {runner}")
             return False
         except subprocess.TimeoutExpired:
             logger.error(f"Agent timeout: {agent}")
