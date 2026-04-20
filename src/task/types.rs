@@ -1,29 +1,39 @@
-use serde::{Deserialize, Serialize};
-
-/// All task variants that a job can contain.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum TaskDef {
-    /// Run a shell command
-    Run { command: String },
-    /// HTTP reachability check
-    Url {
+#[derive(Debug, Clone)]
+pub enum StepDef {
+    Agent {
+        name: Option<String>,
+        agent: String,
+        prompt: String,
+        flags: Vec<String>,
+        /// Per-step workspace override (Milestone 3 chained-steps).
+        workspace: Option<String>,
+    },
+    Shell {
+        name: Option<String>,
+        command: String,
+        workspace: Option<String>,
+    },
+    UrlCheck {
+        name: Option<String>,
         url: String,
         expected_status: Option<u16>,
     },
-    /// Check that a file path exists
-    FileExists { path: String },
-    /// Invoke an AI agent via heartbeat-agent-runner.sh
-    Agent {
-        /// "claude" | "opencode" | "codex"
-        kind: String,
-        prompt: String,
-        cwd: Option<String>,
+    FileCheck {
+        name: Option<String>,
+        path: String,
     },
-    /// Call Anthropic or OpenAI API directly (no shell runner)
-    AgentApi {
-        provider: String, // "anthropic" | "openai"
-        model: String,
-        prompt: String,
-    },
+}
+
+impl StepDef {
+    /// Human-readable label for log output.
+    pub fn display_name(&self, idx: usize) -> String {
+        let name = match self {
+            StepDef::Agent { name, .. } => name,
+            StepDef::Shell { name, .. } => name,
+            StepDef::UrlCheck { name, .. } => name,
+            StepDef::FileCheck { name, .. } => name,
+        };
+        name.clone()
+            .unwrap_or_else(|| format!("step[{}]", idx))
+    }
 }

@@ -1,92 +1,282 @@
-/// Parsed job definition loaded from a `.yaml` or `.htb` file.
-use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use anyhow::{bail, Context, Result};
+use serde::Deserialize;
 use std::path::Path;
 
-use crate::task::types::TaskDef;
+use super::schedule::Schedule;
+use crate::task::types::StepDef;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+// ── Public types ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
 pub struct JobConfig {
     pub name: String,
-    /// Working directory for tasks (defaults to `~`)
-    #[serde(default)]
-    pub folder: Option<String>,
-    /// Cron expression, e.g. `"*/5 * * * *"`
-    pub frequency: Option<String>,
-    /// ISO-8601 datetime — run exactly once at this time
-    pub run_once_at: Option<String>,
-    pub tasks: Vec<TaskDef>,
-    #[serde(default)]
+    pub schedule: Schedule,
+    /// Expanded working directory (tilde not yet expanded — done at runtime).
+    pub workspace: String,
+    pub steps: Vec<StepDef>,
     pub on_fail: Vec<String>,
 }
 
+// ── Raw YAML deserialization types ────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct Frontmatter {
+    name: Option<String>,
+    schedule: Option<String>,
+    workspace: Option<String>,
+    /// Default agent for single-step shorthand (body-as-prompt).
+    agent: Option<String>,
+    /// Extra flags for single-step shorthand.
+    #[serde(default)]
+    flags: Vec<String>,
+    #[serde(default)]
+    on_fail: Vec<String>,
+    /// Explicit multi-step pipeline (chained-steps spec, Milestone 3).
+    #[serde(default)]
+    steps: Vec<RawStep>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct RawStep {
+    name: Option<String>,
+    #[serde(rename = "type")]
+    kind: String,
+    // agent step
+    agent: Option<String>,
+    prompt: Option<String>,
+    #[serde(default)]
+    flags: Vec<String>,
+    workspace: Option<String>,
+    // shell step
+    command: Option<String>,
+    // url-check step
+    url: Option<String>,
+    expected_status: Option<u16>,
+    // file-check step
+    path: Option<String>,
+}
+
+// ── impl JobConfig ─────────────────────────────────────────────────────────────
+
 impl JobConfig {
+    /// Load and parse a `.htb` file.
     pub fn load(path: &Path) -> Result<Self> {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        match ext {
-            "yaml" | "yml" => Self::load_yaml(path),
-            "htb" => Self::load_htb(path),
-            other => anyhow::bail!("Unsupported job file extension: {}", other),
+        if ext != "htb" {
+            bail!("not a .htb file: {}", path.display());
         }
-    }
-
-    fn load_yaml(path: &Path) -> Result<Self> {
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("reading {}", path.display()))?;
-        serde_yaml::from_str(&raw)
-            .with_context(|| format!("parsing YAML {}", path.display()))
+        Self::parse(&raw)
+            .with_context(|| format!("parsing {}", path.display()))
     }
 
-    /// Minimal natural-language `.htb` parser (subset of Python version).
-    fn load_htb(path: &Path) -> Result<Self> {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        parse_htb(&raw, path)
+    fn parse(src: &str) -> Result<Self> {
+        let (fm_str, body) = split_frontmatter(src)?;
+
+        let fm: Frontmatter = serde_yaml::from_str(&fm_str)
+            .context("invalid YAML frontmatter")?;
+
+        // Required fields
+        let name = fm
+            .name
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("missing required field: name"))?;
+
+        let schedule_str = fm
+            .schedule
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("missing required field: schedule"))?;
+
+        let schedule = Schedule::parse(&schedule_str)
+            .with_context(|| format!("invalid schedule {:?}", schedule_str))?;
+
+        let workspace = fm.workspace.unwrap_or_else(|| "~".to_string());
+
+        // Build steps
+        let default_agent = fm.agent.as_deref();
+        let steps = if !fm.steps.is_empty() {
+            // Explicit steps array
+            fm.steps
+                .iter()
+                .map(|rs| raw_step_to_def(rs, default_agent))
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            // Body-as-prompt shorthand
+            let prompt = body.trim().to_string();
+            if prompt.is_empty() {
+                bail!("job has no steps and no prompt body");
+            }
+            vec![StepDef::Agent {
+                name: None,
+                agent: fm
+                    .agent
+                    .unwrap_or_else(|| "claude".to_string()),
+                prompt,
+                flags: fm.flags,
+                workspace: None,
+            }]
+        };
+
+        Ok(JobConfig {
+            name,
+            schedule,
+            workspace,
+            steps,
+            on_fail: fm.on_fail,
+        })
     }
 }
 
-fn parse_htb(src: &str, path: &Path) -> Result<JobConfig> {
-    use crate::task::types::TaskDef;
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("job")
-        .to_string();
+/// Split a document into (frontmatter_yaml, body).
+/// The document must start with `---` and have a closing `---`.
+fn split_frontmatter(src: &str) -> Result<(String, String)> {
+    let mut lines = src.lines();
 
-    let mut name = stem.clone();
-    let mut folder: Option<String> = None;
-    let mut frequency: Option<String> = None;
-    let mut run_once_at: Option<String> = None;
-    let mut tasks: Vec<TaskDef> = Vec::new();
-    let mut on_fail: Vec<String> = Vec::new();
+    match lines.next() {
+        Some(l) if l.trim() == "---" => {}
+        _ => bail!("file does not start with ---"),
+    }
 
-    for line in src.lines() {
-        let line = line.trim();
-        if let Some(v) = line.strip_prefix("# Heartbeat:") {
-            name = v.trim().to_string();
-        } else if let Some(v) = line.strip_prefix("# Folder:") {
-            folder = Some(v.trim().to_string());
-        } else if let Some(v) = line.strip_prefix("# Frequency:") {
-            frequency = Some(v.trim().to_string());
-        } else if let Some(v) = line.strip_prefix("# Run once at:") {
-            run_once_at = Some(v.trim().to_string());
-        } else if let Some(v) = line.strip_prefix("URL reachable:") {
-            tasks.push(TaskDef::Url { url: v.trim().to_string(), expected_status: None });
-        } else if let Some(v) = line.strip_prefix("File exists:") {
-            tasks.push(TaskDef::FileExists { path: v.trim().to_string() });
-        } else if let Some(v) = line.strip_prefix("Run:") {
-            tasks.push(TaskDef::Run { command: v.trim().to_string() });
-        } else if let Some(v) = line.strip_prefix("Ask Claude:") {
-            tasks.push(TaskDef::Agent {
-                kind: "claude".to_string(),
-                prompt: v.trim().to_string(),
-                cwd: None,
-            });
-        } else if let Some(v) = line.strip_prefix("On fail:") {
-            on_fail.push(v.trim().to_string());
+    let mut fm_lines: Vec<&str> = Vec::new();
+    let mut found_close = false;
+
+    for line in lines.by_ref() {
+        if line.trim() == "---" {
+            found_close = true;
+            break;
+        }
+        fm_lines.push(line);
+    }
+
+    if !found_close {
+        bail!("missing closing --- in frontmatter");
+    }
+
+    let body: Vec<&str> = lines.collect();
+    Ok((fm_lines.join("\n"), body.join("\n")))
+}
+
+fn raw_step_to_def(rs: &RawStep, default_agent: Option<&str>) -> Result<StepDef> {
+    match rs.kind.as_str() {
+        "agent" => {
+            let agent = rs
+                .agent
+                .clone()
+                .or_else(|| default_agent.map(str::to_string))
+                .unwrap_or_else(|| "claude".to_string());
+            let prompt = rs
+                .prompt
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("agent step missing 'prompt'"))?;
+            Ok(StepDef::Agent {
+                name: rs.name.clone(),
+                agent,
+                prompt,
+                flags: rs.flags.clone(),
+                workspace: rs.workspace.clone(),
+            })
+        }
+        "shell" => {
+            let command = rs
+                .command
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("shell step missing 'command'"))?;
+            Ok(StepDef::Shell {
+                name: rs.name.clone(),
+                command,
+                workspace: rs.workspace.clone(),
+            })
+        }
+        "url-check" => {
+            let url = rs
+                .url
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("url-check step missing 'url'"))?;
+            Ok(StepDef::UrlCheck {
+                name: rs.name.clone(),
+                url,
+                expected_status: rs.expected_status,
+            })
+        }
+        "file-check" => {
+            let path = rs
+                .path
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("file-check step missing 'path'"))?;
+            Ok(StepDef::FileCheck {
+                name: rs.name.clone(),
+                path,
+            })
+        }
+        other => bail!("unknown step type: {}", other),
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_body_as_prompt() {
+        let src = "---\nname: test\nschedule: every 5m\n---\nHello agent\n";
+        let cfg = JobConfig::parse(src).unwrap();
+        assert_eq!(cfg.name, "test");
+        assert_eq!(cfg.steps.len(), 1);
+        match &cfg.steps[0] {
+            StepDef::Agent { prompt, agent, .. } => {
+                assert_eq!(prompt, "Hello agent");
+                assert_eq!(agent, "claude");
+            }
+            _ => panic!("expected Agent step"),
         }
     }
 
-    Ok(JobConfig { name, folder, frequency, run_once_at, tasks, on_fail })
+    #[test]
+    fn missing_closing_delimiter() {
+        let src = "---\nname: test\nschedule: every 5m\n";
+        assert!(JobConfig::parse(src).is_err());
+    }
+
+    #[test]
+    fn missing_name_field() {
+        let src = "---\nschedule: every 5m\n---\nprompt\n";
+        let err = JobConfig::parse(src).unwrap_err().to_string();
+        assert!(err.contains("missing required field: name"), "got: {}", err);
+    }
+
+    #[test]
+    fn empty_body_no_steps_is_error() {
+        let src = "---\nname: test\nschedule: every 5m\n---\n";
+        let err = JobConfig::parse(src).unwrap_err().to_string();
+        assert!(err.contains("no steps and no prompt body"), "got: {}", err);
+    }
+
+    #[test]
+    fn workspace_defaults_to_tilde() {
+        let src = "---\nname: test\nschedule: every 5m\n---\nhello\n";
+        let cfg = JobConfig::parse(src).unwrap();
+        assert_eq!(cfg.workspace, "~");
+    }
+
+    #[test]
+    fn parse_explicit_steps() {
+        let src = "\
+---
+name: pipeline
+schedule: every 1h
+steps:
+  - name: check
+    type: shell
+    command: echo hi
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        assert_eq!(cfg.steps.len(), 1);
+        assert!(matches!(&cfg.steps[0], StepDef::Shell { .. }));
+    }
 }

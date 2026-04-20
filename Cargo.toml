@@ -1,21 +1,22 @@
 [package]
 name = "heartbeat"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
-description = "A lightweight service that runs agent/shell tasks from markup job files"
+description = "A lightweight daemon that runs agent/shell tasks from prompt markup job files"
 
 [[bin]]
 name = "heartbeat"
 path = "src/main.rs"
 
 [dependencies]
-# Async runtime
+# Async runtime (full for signal handling + process + net)
 tokio = { version = "1", features = ["full"] }
-# YAML job file parsing
+# Serialisation
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
-# Cron schedule parsing
-cron = "0.12"
+serde_json = "1"
+# CLI (Milestone 2 — declared now so it compiles)
+clap = { version = "4", features = ["derive"] }
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -23,16 +24,22 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"
 # Time
 chrono = { version = "0.4", features = ["serde"] }
-# Filesystem watching (for hot-reload of job files)
+# Filesystem watching (hot-reload)
 notify = "6"
-# Anyhow error handling
+# Error handling
 anyhow = "1"
-# HTTP checks
-reqwest = { version = "0.12", features = ["json"] }
+# HTTP checks (url-check step)
+reqwest = { version = "0.12", default-features = false, features = ["native-tls"] }
 # ~ expansion
 shellexpand = "3"
-# which(1) for finding binaries
+# Binary lookup
 which = "6"
 
 [dev-dependencies]
 tempfile = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "z"
