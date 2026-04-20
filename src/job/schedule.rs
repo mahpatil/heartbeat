@@ -37,6 +37,18 @@ impl Schedule {
         bail!("unrecognised schedule: {:?}", s)
     }
 
+    /// Next scheduled fire time, if computable from the schedule alone.
+    /// Returns `None` for `Every` intervals (requires job state to know next fire).
+    pub fn next_run(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        match self {
+            Schedule::Every(_) => None,
+            Schedule::DailyAt { hour, minute } => Some(next_hhmm_utc(*hour, *minute)),
+            Schedule::OnceAt(dt) => {
+                if *dt > chrono::Utc::now() { Some(*dt) } else { None }
+            }
+        }
+    }
+
     pub fn display(&self) -> String {
         match self {
             Schedule::Every(d) => {

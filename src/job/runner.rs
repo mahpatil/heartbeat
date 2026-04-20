@@ -17,6 +17,28 @@ pub enum JobStatus {
     Done,
 }
 
+impl JobStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            JobStatus::Idle => "idle",
+            JobStatus::Running => "running",
+            JobStatus::Failed(_) => "failed",
+            JobStatus::Done => "done",
+        }
+    }
+}
+
+/// Trigger an immediate one-off execution outside the normal schedule loop.
+/// Used by the `heartbeat run <name>` IPC command.
+pub async fn execute_job_now(
+    config: Arc<JobConfig>,
+    status: Arc<Mutex<JobStatus>>,
+    logger: JobLogger,
+) {
+    let workspace = shellexpand::tilde(&config.workspace).to_string();
+    run_once(&config, &workspace, &status, &logger).await;
+}
+
 /// Long-running task for a single job. Respects the schedule, executes steps,
 /// and handles on_fail. Exits only when the tokio task is aborted (by the
 /// controller on shutdown or hot-reload) or when a OnceAt job completes.

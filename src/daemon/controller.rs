@@ -9,16 +9,16 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
+use crate::ipc::{ControlCmd, JobSummary};
 use crate::job::{
     config::JobConfig,
-    runner::{run_job_loop, JobStatus},
+    runner::{execute_job_now, run_job_loop, JobStatus},
+    schedule::Schedule,
 };
 use crate::log::writer::JobLogger;
 
 // ── Internal job state ────────────────────────────────────────────────────────
 
-// Fields used by M2 IPC (list/status commands)
-#[allow(dead_code)]
 struct JobState {
     config: Arc<JobConfig>,
     handle: JoinHandle<()>,
@@ -48,6 +48,7 @@ impl Controller {
     ) -> Result<()> {
         let jobs_dir = self.hb_dir.join("jobs");
         let logs_dir = self.hb_dir.join("logs");
+        let sock_path = self.hb_dir.join("heartbeat.sock");
 
         // Ensure directories exist
         for dir in [&jobs_dir, &logs_dir] {
@@ -59,6 +60,10 @@ impl Controller {
 
         // Initial load of all existing job files
         self.load_all(&jobs_dir, &logs_dir).await;
+
+        // ── IPC channel ───────────────────────────────────────────────────────
+        let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel::<ControlCmd>(32);
+        tokio::spawn(super::ipc::serve(sock_path.clone(), cmd_tx));
 
         // ── Filesystem watcher ────────────────────────────────────────────────
         // notify uses a sync callback; bridge it to an async channel.
@@ -89,10 +94,14 @@ impl Controller {
                 _ = &mut shutdown => {
                     info!("Shutdown received — stopping all jobs");
                     self.stop_all().await;
-                    // Dropping watcher closes the sync channel, unblocking
-                    // the spawn_blocking relay task.
+                    // Remove IPC socket
+                    tokio::fs::remove_file(&sock_path).await.ok();
                     drop(watcher);
                     break;
+                }
+
+                Some(cmd) = cmd_rx.recv() => {
+                    self.handle_cmd(cmd, &jobs_dir, &logs_dir).await;
                 }
 
                 Some(event) = async_rx.recv() => {
@@ -109,6 +118,81 @@ impl Controller {
         }
 
         Ok(())
+    }
+
+    // ── IPC command dispatch ──────────────────────────────────────────────────
+
+    async fn handle_cmd(&self, cmd: ControlCmd, jobs_dir: &Path, logs_dir: &Path) {
+        match cmd {
+            ControlCmd::Ping { reply } => {
+                let _ = reply.send(());
+            }
+
+            ControlCmd::List { reply } => {
+                let jobs = self.jobs.lock().await;
+                let mut summaries = Vec::new();
+                for (name, state) in jobs.iter() {
+                    let status = state.status.lock().await;
+                    let next_run = match &state.config.schedule {
+                        Schedule::Every(_) => None,
+                        other => other.next_run().map(|dt| dt.to_rfc3339()),
+                    };
+                    summaries.push(JobSummary {
+                        name: name.clone(),
+                        status: status.as_str().to_string(),
+                        schedule: state.config.schedule.display(),
+                        workspace: state.config.workspace.clone(),
+                        next_run,
+                    });
+                }
+                let _ = reply.send(summaries);
+            }
+
+            ControlCmd::RunNow { name, reply } => {
+                let jobs = self.jobs.lock().await;
+                match jobs.get(&name) {
+                    Some(state) => {
+                        let cfg = Arc::clone(&state.config);
+                        let status = Arc::clone(&state.status);
+                        let logger = state.logger.clone();
+                        drop(jobs);
+                        tokio::spawn(execute_job_now(cfg, status, logger));
+                        let _ = reply.send(Ok(()));
+                    }
+                    None => {
+                        let _ = reply.send(Err(anyhow::anyhow!("job not found: {}", name)));
+                    }
+                }
+            }
+
+            ControlCmd::Stop { name, reply } => {
+                let mut jobs = self.jobs.lock().await;
+                match jobs.remove(&name) {
+                    Some(state) => {
+                        info!("Stopping job via IPC: {}", name);
+                        state.handle.abort();
+                        let _ = reply.send(Ok(()));
+                    }
+                    None => {
+                        let _ = reply.send(Err(anyhow::anyhow!("job not found: {}", name)));
+                    }
+                }
+            }
+
+            ControlCmd::Reload { reply } => {
+                info!("Reload requested via IPC");
+                // Stop all, reload all from disk
+                {
+                    let mut jobs = self.jobs.lock().await;
+                    for (name, state) in jobs.drain() {
+                        info!("Stopping job for reload: {}", name);
+                        state.handle.abort();
+                    }
+                }
+                self.load_all(jobs_dir, logs_dir).await;
+                let _ = reply.send(());
+            }
+        }
     }
 
     // ── FS event dispatch ─────────────────────────────────────────────────────
@@ -182,7 +266,6 @@ impl Controller {
     async fn reload_job(&self, path: &Path, logs_dir: &Path) {
         // Stop the old instance (if any) before starting the new one.
         if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-            // Check by file stem first (fast path), then by config name if loaded.
             let has_by_stem = self.jobs.lock().await.contains_key(stem);
             if has_by_stem {
                 self.stop_job(stem).await;

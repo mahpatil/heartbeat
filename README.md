@@ -23,10 +23,10 @@ cp target/release/heartbeat ~/.heartbeat/
 cp heartbeat-agent-runner.sh ~/.heartbeat/
 
 # Start the daemon (foreground)
-heartbeat
+heartbeat daemon
 
-# Drop a job file
-cat > ~/.heartbeat/jobs/hello.htb << 'EOF'
+# In another terminal — apply a job
+cat > /tmp/hello.htb << 'EOF'
 ---
 name: hello
 schedule: every 10s
@@ -34,8 +34,13 @@ schedule: every 10s
 echo "heartbeat is running"
 EOF
 
-# Watch it fire
-tail -f ~/.heartbeat/logs/hello.log
+heartbeat apply /tmp/hello.htb
+
+# Check what's running
+heartbeat list
+
+# Follow the live log
+heartbeat logs hello --follow
 ```
 
 ---
@@ -146,6 +151,24 @@ All agent invocations go through `heartbeat-agent-runner.sh`, which enriches
 
 ---
 
+## CLI reference
+
+```
+heartbeat daemon                  # start the daemon (foreground)
+heartbeat apply <file.htb>        # install a job (hot-reload, no restart needed)
+heartbeat list                    # show all jobs: name, status, schedule, next run
+heartbeat run <name>              # trigger an immediate run
+heartbeat stop <name>             # stop a job (removed from scheduler)
+heartbeat logs <name>             # print current log
+heartbeat logs <name> --follow    # tail -F the live log
+heartbeat install --autostart     # write ~/Library/LaunchAgents/com.heartbeat.plist
+```
+
+All `heartbeat <cmd>` calls (except `daemon`) talk to the running daemon via a
+Unix socket at `~/.heartbeat/heartbeat.sock`.
+
+---
+
 ## Runtime layout
 
 ```
@@ -154,10 +177,12 @@ All agent invocations go through `heartbeat-agent-runner.sh`, which enriches
 ├── heartbeat-agent-runner.sh    # agent execution wrapper
 ├── .env                         # secrets loaded at daemon start
 ├── heartbeat.pid                # daemon PID (present while running)
+├── heartbeat.sock               # Unix IPC socket
 ├── jobs/
-│   └── *.htb                    # job files
+│   └── *.htb                    # job files (hot-watched; no restart needed)
 └── logs/
-    └── <name>.log               # per-job logs (streamed in real time)
+    ├── <name>.log               # current log (10 MB max)
+    └── <name>.log.1 … .5        # rotated logs
 ```
 
 ---
@@ -184,7 +209,7 @@ Requires Rust 1.75+.
 ```bash
 cargo build           # debug
 cargo build --release # optimised (~2-3 MB after strip)
-cargo test            # 14 unit tests
+cargo test            # 28 unit tests
 ```
 
 ---
@@ -194,7 +219,7 @@ cargo test            # 14 unit tests
 | Milestone | Status |
 |---|---|
 | 1 — Core daemon (schedule, executor, hot-reload) | ✅ |
-| 2 — Control plane (IPC socket, CLI commands, log rotation) | 🔲 |
+| 2 — Control plane (IPC socket, CLI commands, log rotation) | ✅ |
 | 3 — Chained steps (multi-agent pipelines) | 🔲 |
 | 4 — Distribution (`install.sh`, pre-built binaries, LaunchAgent) | 🔲 |
 
