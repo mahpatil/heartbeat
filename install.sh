@@ -18,9 +18,8 @@ die()   { echo "[heartbeat] ERROR: $*" >&2; exit 1; }
 # ── Platform detection ────────────────────────────────────────────────────────
 
 detect_target() {
-    local arch
+    local arch os
     arch="$(uname -m)"
-    local os
     os="$(uname -s)"
 
     if [[ "$os" == "Darwin" ]]; then
@@ -38,63 +37,87 @@ TARGET="$(detect_target)"
 
 # ── Directory setup ───────────────────────────────────────────────────────────
 
-info "Setting up ~/.heartbeat..."
+info "Setting up $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR/jobs" "$INSTALL_DIR/logs"
 
-# ── Fetch latest release tag ──────────────────────────────────────────────────
+# ── Fetch latest release tag (best-effort) ────────────────────────────────────
 
-LATEST="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-    | grep '"tag_name"' | cut -d'"' -f4)"
+LATEST="$(curl -fsSL --max-time 10 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+    | grep '"tag_name"' | cut -d'"' -f4 || true)"
 
-if [[ -z "$LATEST" ]]; then
-    die "Could not determine latest release from GitHub API."
-fi
+# ── Binary install ────────────────────────────────────────────────────────────
 
-# ── macOS: download pre-built binary ─────────────────────────────────────────
+install_binary() {
+    # Try pre-built binary first (macOS only, release must exist)
+    if [[ "$TARGET" == *"apple-darwin"* && -n "$LATEST" ]]; then
+        local asset_url="https://github.com/$REPO/releases/download/$LATEST/heartbeat-$TARGET"
+        local checksum_url="$asset_url.sha256"
 
-if [[ "$TARGET" == *"apple-darwin"* ]]; then
-    ASSET_URL="https://github.com/$REPO/releases/download/$LATEST/heartbeat-$TARGET"
-    CHECKSUM_URL="$ASSET_URL.sha256"
+        info "Downloading heartbeat $LATEST ($TARGET)..."
+        if curl -fsSL --max-time 60 "$asset_url" -o "$BIN.tmp" 2>/dev/null \
+        && curl -fsSL --max-time 10 "$checksum_url" -o "$BIN.tmp.sha256" 2>/dev/null; then
 
-    info "Downloading heartbeat $LATEST ($TARGET)..."
-    curl -fsSL "$ASSET_URL"     -o "$BIN.tmp"
-    curl -fsSL "$CHECKSUM_URL"  -o "$BIN.tmp.sha256"
+            info "Verifying checksum..."
+            local expected actual
+            expected="$(cat "$BIN.tmp.sha256")"
+            actual="$(shasum -a 256 "$BIN.tmp" | awk '{print $1}')"
 
-    # Verify checksum
-    info "Verifying checksum..."
-    EXPECTED="$(cat "$BIN.tmp.sha256")"
-    ACTUAL="$(shasum -a 256 "$BIN.tmp" | awk '{print $1}')"
+            if [[ "$expected" != "$actual" ]]; then
+                rm -f "$BIN.tmp" "$BIN.tmp.sha256"
+                die "Checksum verification failed. Expected: $expected  Got: $actual"
+            fi
 
-    if [[ "$EXPECTED" != "$ACTUAL" ]]; then
-        rm -f "$BIN.tmp" "$BIN.tmp.sha256"
-        die "Checksum verification failed. Expected: $EXPECTED  Got: $ACTUAL"
+            mv "$BIN.tmp" "$BIN"
+            rm -f "$BIN.tmp.sha256"
+            chmod +x "$BIN"
+            info "Installed binary: $BIN"
+            return 0
+        else
+            rm -f "$BIN.tmp" "$BIN.tmp.sha256"
+            warn "Pre-built binary unavailable — falling back to cargo."
+        fi
+    elif [[ -z "$LATEST" ]]; then
+        warn "No GitHub release found — falling back to cargo."
+    else
+        warn "No pre-built binary for this platform ($TARGET) — falling back to cargo."
     fi
 
-    mv "$BIN.tmp" "$BIN"
-    rm -f "$BIN.tmp.sha256"
+    # Cargo fallback
+    if ! command -v cargo &>/dev/null; then
+        echo
+        echo "  Rust is not installed. To install it:"
+        echo "    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+        echo "  Then re-run this script."
+        die "cargo not found."
+    fi
+
+    # If we're running from inside the repo, build locally (faster, no network)
+    if [[ -f "$(pwd)/Cargo.toml" ]] && grep -q 'name = "heartbeat"' "$(pwd)/Cargo.toml" 2>/dev/null; then
+        info "Building from local source..."
+        cargo build --release
+        cp "$(pwd)/target/release/heartbeat" "$BIN"
+    else
+        info "Building from source (this may take a few minutes)..."
+        cargo install --git "https://github.com/$REPO" --root "$INSTALL_DIR" --bin heartbeat
+        # cargo install puts the binary in $INSTALL_DIR/bin/heartbeat
+        [[ -f "$INSTALL_DIR/bin/heartbeat" ]] && mv "$INSTALL_DIR/bin/heartbeat" "$BIN" || true
+    fi
+
     chmod +x "$BIN"
     info "Installed binary: $BIN"
+}
 
-# ── Non-macOS: cargo fallback ─────────────────────────────────────────────────
-
-else
-    warn "No pre-built binary for this platform ($TARGET)."
-
-    if command -v cargo &>/dev/null; then
-        info "Building from source (this may take a few minutes)..."
-        cargo install --git "https://github.com/$REPO" --root "$INSTALL_DIR" heartbeat
-    else
-        echo
-        echo "  To install Rust: https://rustup.rs"
-        echo "  Then re-run this script."
-        die "cargo not found. Please install Rust first."
-    fi
-fi
+install_binary
 
 # ── Install agent runner ──────────────────────────────────────────────────────
 
-info "Installing heartbeat-agent-runner.sh..."
-curl -fsSL "$RAW_BASE/heartbeat-agent-runner.sh" -o "$RUNNER"
+if [[ -f "$(pwd)/heartbeat-agent-runner.sh" ]]; then
+    # Running from repo — copy local version
+    cp "$(pwd)/heartbeat-agent-runner.sh" "$RUNNER"
+else
+    info "Installing heartbeat-agent-runner.sh..."
+    curl -fsSL "$RAW_BASE/heartbeat-agent-runner.sh" -o "$RUNNER"
+fi
 chmod +x "$RUNNER"
 
 # ── PATH configuration ────────────────────────────────────────────────────────
@@ -115,8 +138,9 @@ done
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
+VERSION="$("$BIN" --version 2>/dev/null || echo "${LATEST:-dev}")"
 echo
-echo "  Heartbeat $LATEST installed to $INSTALL_DIR"
+echo "  $VERSION installed to $INSTALL_DIR"
 echo
 echo "  Next steps:"
 echo "    1. Reload your shell:  source ~/.zshrc   (or open a new terminal)"
