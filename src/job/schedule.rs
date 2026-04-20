@@ -53,7 +53,8 @@ impl Schedule {
         match self {
             Schedule::Every(d) => {
                 let s = d.as_secs();
-                if s % 3600 == 0 { format!("every {}h", s / 3600) }
+                if s % 86_400 == 0 { format!("every {}d", s / 86_400) }
+                else if s % 3600 == 0 { format!("every {}h", s / 3600) }
                 else if s % 60 == 0 { format!("every {}m", s / 60) }
                 else { format!("every {}s", s) }
             }
@@ -206,5 +207,109 @@ mod tests {
     fn parse_unrecognised() {
         let e = Schedule::parse("run it sometime").unwrap_err();
         assert!(e.to_string().contains("unrecognised schedule"));
+    }
+
+    // ── every Nd ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_every_1d() {
+        let s = Schedule::parse("every 1d").unwrap();
+        assert!(matches!(s, Schedule::Every(d) if d.as_secs() == 86_400));
+    }
+
+    #[test]
+    fn parse_every_day_long_form() {
+        let s = Schedule::parse("every 2 days").unwrap();
+        assert!(matches!(s, Schedule::Every(d) if d.as_secs() == 172_800));
+    }
+
+    // ── once at HH:MM ────────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_once_at_bare_hhmm() {
+        // Should parse without error and return a future UTC instant.
+        let s = Schedule::parse("once at 04:00").unwrap();
+        match s {
+            Schedule::OnceAt(dt) => {
+                assert!(dt > Utc::now(), "once at 04:00 resolved to the past");
+            }
+            _ => panic!("expected OnceAt"),
+        }
+    }
+
+    #[test]
+    fn parse_once_at_bare_hhmm_midnight() {
+        let s = Schedule::parse("once at 00:00").unwrap();
+        assert!(matches!(s, Schedule::OnceAt(_)));
+    }
+
+    #[test]
+    fn parse_once_at_invalid_hhmm() {
+        // 25:00 is out of range
+        assert!(Schedule::parse("once at 25:00").is_err());
+    }
+
+    // ── display() ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn display_every_seconds() {
+        let s = Schedule::Every(Duration::from_secs(45));
+        assert_eq!(s.display(), "every 45s");
+    }
+
+    #[test]
+    fn display_every_minutes() {
+        let s = Schedule::Every(Duration::from_secs(300));
+        assert_eq!(s.display(), "every 5m");
+    }
+
+    #[test]
+    fn display_every_hours() {
+        let s = Schedule::Every(Duration::from_secs(7200));
+        assert_eq!(s.display(), "every 2h");
+    }
+
+    #[test]
+    fn display_every_days() {
+        let s = Schedule::Every(Duration::from_secs(86_400));
+        assert_eq!(s.display(), "every 1d");
+    }
+
+    #[test]
+    fn display_every_multi_day() {
+        let s = Schedule::Every(Duration::from_secs(3 * 86_400));
+        assert_eq!(s.display(), "every 3d");
+    }
+
+    #[test]
+    fn display_daily_at() {
+        let s = Schedule::DailyAt { hour: 2, minute: 30 };
+        assert_eq!(s.display(), "daily at 02:30");
+    }
+
+    #[test]
+    fn display_once_at_rfc3339() {
+        let dt = DateTime::parse_from_rfc3339("2030-06-01T09:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let s = Schedule::OnceAt(dt);
+        assert_eq!(s.display(), "once at 2030-06-01T09:00:00Z");
+    }
+
+    // ── zero / edge cases ─────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_zero_interval_is_error() {
+        assert!(Schedule::parse("every 0m").is_err());
+    }
+
+    #[test]
+    fn parse_missing_number_is_error() {
+        assert!(Schedule::parse("every m").is_err());
+    }
+
+    #[test]
+    fn parse_missing_unit_is_error() {
+        assert!(Schedule::parse("every 5").is_err());
     }
 }

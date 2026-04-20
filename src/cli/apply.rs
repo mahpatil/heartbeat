@@ -18,24 +18,139 @@ pub async fn run(src: &Path, hb_dir: &PathBuf) -> Result<()> {
         bail!("File not found: {}", src.display());
     }
 
+    // Validate BEFORE touching the jobs directory — never delete on error.
+    let cfg = crate::job::config::JobConfig::load(src)
+        .map_err(|e| anyhow::anyhow!("Invalid job file: {}", e))?;
+
     let jobs_dir = hb_dir.join("jobs");
     tokio::fs::create_dir_all(&jobs_dir).await?;
 
     let dest = jobs_dir.join(src.file_name().unwrap());
-    tokio::fs::copy(src, &dest).await?;
 
-    // Verify the file parses correctly
-    match crate::job::config::JobConfig::load(&dest) {
-        Ok(cfg) => {
-            println!("Applied: {} (schedule: {})", cfg.name, cfg.schedule.display());
-            info!("Job applied: {} -> {}", src.display(), dest.display());
-        }
-        Err(e) => {
-            // Remove the bad file so the daemon doesn't choke on it
-            tokio::fs::remove_file(&dest).await.ok();
-            bail!("Invalid job file: {}", e);
-        }
+    // Only copy if src and dest are different paths.
+    let src_canon = src.canonicalize().unwrap_or_else(|_| src.to_path_buf());
+    let dest_exists = dest.exists();
+    let dest_canon = if dest_exists {
+        dest.canonicalize().unwrap_or_else(|_| dest.clone())
+    } else {
+        dest.clone()
+    };
+
+    if src_canon != dest_canon {
+        tokio::fs::copy(src, &dest).await?;
+        info!("Job applied: {} -> {}", src.display(), dest.display());
+    } else {
+        info!("Job already in place: {}", dest.display());
     }
 
+    println!("Applied: {} (schedule: {})", cfg.name, cfg.schedule.display());
+
     Ok(())
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn valid_htb() -> &'static str {
+        "---\nname: test-job\nschedule: every 5m\n---\necho hello\n"
+    }
+
+    fn invalid_htb_no_closing() -> &'static str {
+        "---\nname: test-job\nschedule: every 5m\n"
+    }
+
+    async fn write_htb(dir: &TempDir, name: &str, content: &str) -> PathBuf {
+        let path = dir.path().join(name);
+        tokio::fs::write(&path, content).await.unwrap();
+        path
+    }
+
+    // ── Valid file is copied ──────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn valid_file_is_copied_to_jobs_dir() {
+        let src_dir = TempDir::new().unwrap();
+        let hb_dir = TempDir::new().unwrap();
+        let src = write_htb(&src_dir, "test-job.htb", valid_htb()).await;
+
+        run(&src, &hb_dir.path().to_path_buf()).await.unwrap();
+
+        let dest = hb_dir.path().join("jobs").join("test-job.htb");
+        assert!(dest.exists(), "job file not copied to jobs dir");
+    }
+
+    // ── Invalid file: source is NOT deleted ───────────────────────────────────
+
+    #[tokio::test]
+    async fn invalid_file_source_is_never_deleted() {
+        let src_dir = TempDir::new().unwrap();
+        let hb_dir = TempDir::new().unwrap();
+        let src = write_htb(&src_dir, "bad.htb", invalid_htb_no_closing()).await;
+
+        let result = run(&src, &hb_dir.path().to_path_buf()).await;
+
+        assert!(result.is_err(), "expected error on invalid file");
+        assert!(src.exists(), "source file was deleted on parse error — must never happen");
+    }
+
+    #[tokio::test]
+    async fn invalid_file_dest_is_not_created() {
+        let src_dir = TempDir::new().unwrap();
+        let hb_dir = TempDir::new().unwrap();
+        let src = write_htb(&src_dir, "bad.htb", invalid_htb_no_closing()).await;
+
+        let _ = run(&src, &hb_dir.path().to_path_buf()).await;
+
+        let dest = hb_dir.path().join("jobs").join("bad.htb");
+        assert!(!dest.exists(), "dest was created despite parse error");
+    }
+
+    // ── Applying file already in jobs/ is idempotent ─────────────────────────
+
+    #[tokio::test]
+    async fn apply_from_jobs_dir_is_idempotent() {
+        let hb_dir = TempDir::new().unwrap();
+        let jobs_dir = hb_dir.path().join("jobs");
+        tokio::fs::create_dir_all(&jobs_dir).await.unwrap();
+
+        // Write directly into jobs/
+        let src = jobs_dir.join("test-job.htb");
+        tokio::fs::write(&src, valid_htb()).await.unwrap();
+
+        // Apply from the same location — should succeed without error or data loss
+        run(&src, &hb_dir.path().to_path_buf()).await.unwrap();
+        assert!(src.exists(), "file in jobs/ was deleted by idempotent apply");
+    }
+
+    // ── Wrong extension rejected ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn wrong_extension_is_rejected() {
+        let src_dir = TempDir::new().unwrap();
+        let hb_dir = TempDir::new().unwrap();
+        let src = write_htb(&src_dir, "test-job.yaml", valid_htb()).await;
+
+        let err = run(&src, &hb_dir.path().to_path_buf()).await.unwrap_err();
+        assert!(err.to_string().contains("Only .htb"), "got: {}", err);
+    }
+
+    // ── Error message mentions the file ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn error_message_names_file() {
+        let src_dir = TempDir::new().unwrap();
+        let hb_dir = TempDir::new().unwrap();
+        let src = write_htb(&src_dir, "broken.htb", invalid_htb_no_closing()).await;
+
+        let err = run(&src, &hb_dir.path().to_path_buf()).await.unwrap_err();
+        assert!(
+            err.to_string().contains("Invalid job file"),
+            "error should mention 'Invalid job file', got: {}",
+            err
+        );
+    }
 }

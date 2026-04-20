@@ -187,6 +187,73 @@ Unix socket at `~/.heartbeat/heartbeat.sock`.
 
 ---
 
+## Using Claude Code skills
+
+Claude Code has built-in **skills** (slash commands) that you can invoke inside
+heartbeat agent prompts — letting you run `/coder`, `/reviewer`, `/spec`, and
+others on a schedule or as pipeline steps.
+
+### Single-skill job
+
+```
+---
+name: nightly-review
+schedule: daily at 23:00
+workspace: ~/projects/myapp
+agent: claude
+flags: ["--dangerously-skip-permissions"]
+---
+/reviewer
+```
+
+Runs `claude -p "/reviewer" --dangerously-skip-permissions` every night at 23:00
+in `~/projects/myapp`. The `/reviewer` skill reads staged changes and produces a
+structured review report.
+
+### Skills as pipeline steps
+
+```
+---
+name: spec-then-code
+schedule: once at 2026-05-01T09:00:00Z
+workspace: ~/projects/myapp
+steps:
+  - name: generate-spec
+    type: agent
+    agent: claude
+    prompt: "/spec openspec/issues/42-auth-redesign.md"
+    flags: ["--dangerously-skip-permissions"]
+
+  - name: implement
+    type: agent
+    agent: claude
+    prompt: "/coder openspec/issues/42-auth-redesign.md"
+    flags: ["--dangerously-skip-permissions"]
+
+  - name: commit
+    type: agent
+    agent: claude
+    prompt: "/git-commit"
+    flags: ["--dangerously-skip-permissions"]
+---
+```
+
+### Common skills reference
+
+| Skill | Prompt | What it does |
+|---|---|---|
+| `/coder <spec>` | `/coder openspec/features/foo.md` | Implements a spec with TDD |
+| `/reviewer` | `/reviewer` | Reviews staged changes for quality/security |
+| `/spec <issue>` | `/spec openspec/issues/42.md` | Generates an OpenSpec from an issue |
+| `/tdd` | `/tdd` | Red-green-refactor loop |
+| `/git-commit` | `/git-commit` | Stages and commits with a generated message |
+
+> **`--dangerously-skip-permissions`** is required for unattended runs —
+> otherwise Claude Code will pause and wait for interactive approval.
+> Only use it in jobs with a known, trusted workspace.
+
+---
+
 ## Runtime layout
 
 ```

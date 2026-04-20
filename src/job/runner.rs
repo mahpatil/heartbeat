@@ -186,6 +186,7 @@ pub(crate) async fn run_once(
 mod tests {
     use super::*;
     use crate::job::schedule::Schedule;
+    use crate::task::types::StepDef;
     use std::time::Duration;
     use tempfile::TempDir;
 
