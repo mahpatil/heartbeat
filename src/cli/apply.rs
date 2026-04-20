@@ -27,21 +27,11 @@ pub async fn run(src: &Path, hb_dir: &PathBuf) -> Result<()> {
 
     let dest = jobs_dir.join(src.file_name().unwrap());
 
-    // Only copy if src and dest are different paths.
-    let src_canon = src.canonicalize().unwrap_or_else(|_| src.to_path_buf());
-    let dest_exists = dest.exists();
-    let dest_canon = if dest_exists {
-        dest.canonicalize().unwrap_or_else(|_| dest.clone())
-    } else {
-        dest.clone()
-    };
-
-    if src_canon != dest_canon {
-        tokio::fs::copy(src, &dest).await?;
-        info!("Job applied: {} -> {}", src.display(), dest.display());
-    } else {
-        info!("Job already in place: {}", dest.display());
-    }
+    // Always write to dest — even when src == dest — so the filesystem watcher
+    // fires a Modify event and the daemon hot-reloads the job.
+    let content = tokio::fs::read(src).await?;
+    tokio::fs::write(&dest, &content).await?;
+    info!("Job applied: {} -> {}", src.display(), dest.display());
 
     println!("Applied: {} (schedule: {})", cfg.name, cfg.schedule.display());
 
@@ -109,10 +99,10 @@ mod tests {
         assert!(!dest.exists(), "dest was created despite parse error");
     }
 
-    // ── Applying file already in jobs/ is idempotent ─────────────────────────
+    // ── Applying file already in jobs/ rewrites it (triggering watcher) ─────
 
     #[tokio::test]
-    async fn apply_from_jobs_dir_is_idempotent() {
+    async fn apply_from_jobs_dir_rewrites_for_watcher() {
         let hb_dir = TempDir::new().unwrap();
         let jobs_dir = hb_dir.path().join("jobs");
         tokio::fs::create_dir_all(&jobs_dir).await.unwrap();
@@ -121,9 +111,11 @@ mod tests {
         let src = jobs_dir.join("test-job.htb");
         tokio::fs::write(&src, valid_htb()).await.unwrap();
 
-        // Apply from the same location — should succeed without error or data loss
+        // Apply from the same location — must succeed and leave the file intact
         run(&src, &hb_dir.path().to_path_buf()).await.unwrap();
-        assert!(src.exists(), "file in jobs/ was deleted by idempotent apply");
+        assert!(src.exists(), "file in jobs/ was deleted by apply");
+        let content = tokio::fs::read_to_string(&src).await.unwrap();
+        assert_eq!(content, valid_htb(), "file content changed unexpectedly");
     }
 
     // ── Wrong extension rejected ──────────────────────────────────────────────
