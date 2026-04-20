@@ -104,6 +104,13 @@ install_binary() {
     fi
 
     chmod +x "$BIN"
+
+    # macOS: clear quarantine/provenance attributes and ad-hoc sign
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        xattr -c "$BIN" 2>/dev/null || true
+        codesign --sign - --force "$BIN" 2>/dev/null || true
+    fi
+
     info "Installed binary: $BIN"
 }
 
