@@ -279,4 +279,227 @@ steps:
         assert_eq!(cfg.steps.len(), 1);
         assert!(matches!(&cfg.steps[0], StepDef::Shell { .. }));
     }
+
+    // ── Chained-steps (M3) ────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_multi_step_pipeline() {
+        let src = "\
+---
+name: nightly
+schedule: daily at 01:30
+workspace: ~/projects/myapp
+steps:
+  - name: run-tests
+    type: shell
+    command: cargo test
+  - name: summarise
+    type: agent
+    agent: claude
+    prompt: Summarise the test output.
+  - name: health-check
+    type: url-check
+    url: https://example.com/health
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        assert_eq!(cfg.steps.len(), 3);
+        assert!(matches!(&cfg.steps[0], StepDef::Shell { name: Some(n), .. } if n == "run-tests"));
+        assert!(matches!(&cfg.steps[1], StepDef::Agent { name: Some(n), agent, .. }
+            if n == "summarise" && agent == "claude"));
+        assert!(matches!(&cfg.steps[2], StepDef::UrlCheck { name: Some(n), .. } if n == "health-check"));
+    }
+
+    #[test]
+    fn step_agent_override() {
+        let src = "\
+---
+name: multi-agent
+schedule: every 1h
+agent: claude
+steps:
+  - name: step1
+    type: agent
+    prompt: Do something with claude.
+  - name: step2
+    type: agent
+    agent: opencode
+    prompt: Fix the issues.
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        assert_eq!(cfg.steps.len(), 2);
+        // step1 inherits job-level agent
+        match &cfg.steps[0] {
+            StepDef::Agent { agent, .. } => assert_eq!(agent, "claude"),
+            _ => panic!("expected Agent"),
+        }
+        // step2 uses its own agent override
+        match &cfg.steps[1] {
+            StepDef::Agent { agent, .. } => assert_eq!(agent, "opencode"),
+            _ => panic!("expected Agent"),
+        }
+    }
+
+    #[test]
+    fn step_workspace_override() {
+        let src = "\
+---
+name: ws-test
+schedule: every 5m
+workspace: ~/projects/myapp
+steps:
+  - name: backend
+    type: shell
+    command: cargo test
+    workspace: ~/projects/myapp/backend
+  - name: frontend
+    type: shell
+    command: npm test
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        // step with explicit workspace
+        match &cfg.steps[0] {
+            StepDef::Shell { workspace: Some(ws), .. } => {
+                assert_eq!(ws, "~/projects/myapp/backend");
+            }
+            _ => panic!("expected Shell with workspace"),
+        }
+        // step without workspace (inherits at runtime)
+        match &cfg.steps[1] {
+            StepDef::Shell { workspace: None, .. } => {}
+            _ => panic!("expected Shell with no workspace"),
+        }
+    }
+
+    #[test]
+    fn unknown_step_type_error() {
+        let src = "\
+---
+name: bad
+schedule: every 5m
+steps:
+  - type: banana
+    command: echo hi
+---
+";
+        let err = JobConfig::parse(src).unwrap_err().to_string();
+        assert!(err.contains("unknown step type: banana"), "got: {}", err);
+    }
+
+    #[test]
+    fn agent_step_inherits_job_agent() {
+        let src = "\
+---
+name: inherit-test
+schedule: every 5m
+agent: opencode
+steps:
+  - type: agent
+    prompt: Do something.
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        match &cfg.steps[0] {
+            StepDef::Agent { agent, .. } => assert_eq!(agent, "opencode"),
+            _ => panic!("expected Agent"),
+        }
+    }
+
+    #[test]
+    fn agent_step_defaults_to_claude_when_no_job_agent() {
+        let src = "\
+---
+name: default-agent
+schedule: every 5m
+steps:
+  - type: agent
+    prompt: Do something.
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        match &cfg.steps[0] {
+            StepDef::Agent { agent, .. } => assert_eq!(agent, "claude"),
+            _ => panic!("expected Agent"),
+        }
+    }
+
+    #[test]
+    fn url_check_and_file_check_steps() {
+        let src = "\
+---
+name: checks
+schedule: every 10m
+steps:
+  - name: url
+    type: url-check
+    url: https://example.com
+    expected_status: 200
+  - name: presence
+    type: file-check
+    path: /tmp/marker.txt
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        assert_eq!(cfg.steps.len(), 2);
+        match &cfg.steps[0] {
+            StepDef::UrlCheck { url, expected_status: Some(200), .. } => {
+                assert_eq!(url, "https://example.com");
+            }
+            _ => panic!("expected UrlCheck(200)"),
+        }
+        match &cfg.steps[1] {
+            StepDef::FileCheck { path, .. } => assert_eq!(path, "/tmp/marker.txt"),
+            _ => panic!("expected FileCheck"),
+        }
+    }
+
+    #[test]
+    fn on_fail_commands_parsed() {
+        let src = "\
+---
+name: with-on-fail
+schedule: every 5m
+on_fail:
+  - notify-slack.sh \"pipeline failed\"
+  - echo fallback
+steps:
+  - type: shell
+    command: cargo test
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        assert_eq!(cfg.on_fail.len(), 2);
+        assert!(cfg.on_fail[0].contains("notify-slack.sh"));
+    }
+
+    #[test]
+    fn agent_step_missing_prompt_error() {
+        let src = "\
+---
+name: bad-agent
+schedule: every 5m
+steps:
+  - type: agent
+    agent: claude
+---
+";
+        let err = JobConfig::parse(src).unwrap_err().to_string();
+        assert!(err.contains("missing 'prompt'"), "got: {}", err);
+    }
+
+    #[test]
+    fn shell_step_missing_command_error() {
+        let src = "\
+---
+name: bad-shell
+schedule: every 5m
+steps:
+  - type: shell
+---
+";
+        let err = JobConfig::parse(src).unwrap_err().to_string();
+        assert!(err.contains("missing 'command'"), "got: {}", err);
+    }
 }

@@ -197,6 +197,129 @@ async fn execute_file_check(
     }
 }
 
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::types::StepDef;
+    use tempfile::TempDir;
+
+    async fn test_logger(dir: &TempDir) -> JobLogger {
+        JobLogger::new("test-job", dir.path()).await.unwrap()
+    }
+
+    // ── Shell step ────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_shell_step_success() {
+        let dir = TempDir::new().unwrap();
+        let logger = test_logger(&dir).await;
+        let step = StepDef::Shell {
+            name: Some("echo".into()),
+            command: "echo hello".into(),
+            workspace: None,
+        };
+        let result = execute_step(&step, "/tmp", "test-job", "echo", &logger).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_shell_step_failure() {
+        let dir = TempDir::new().unwrap();
+        let logger = test_logger(&dir).await;
+        let step = StepDef::Shell {
+            name: None,
+            command: "exit 1".into(),
+            workspace: None,
+        };
+        let result = execute_step(&step, "/tmp", "test-job", "step[0]", &logger).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("exited"));
+    }
+
+    #[tokio::test]
+    async fn test_shell_step_streams_output_to_log() {
+        let dir = TempDir::new().unwrap();
+        let logger = test_logger(&dir).await;
+        let step = StepDef::Shell {
+            name: Some("greet".into()),
+            command: "echo 'hello from step'".into(),
+            workspace: None,
+        };
+        execute_step(&step, "/tmp", "test-job", "greet", &logger).await.unwrap();
+
+        let log_content = tokio::fs::read_to_string(logger.path()).await.unwrap();
+        assert!(log_content.contains("hello from step"), "log: {}", log_content);
+    }
+
+    #[tokio::test]
+    async fn test_shell_step_workspace_override() {
+        let dir = TempDir::new().unwrap();
+        let logger = test_logger(&dir).await;
+        let workspace = dir.path().to_str().unwrap().to_string();
+        let step = StepDef::Shell {
+            name: None,
+            command: "pwd".into(),
+            workspace: Some(workspace.clone()),
+        };
+        // Should not fail — directory exists
+        let result = execute_step(&step, "/tmp", "test-job", "step[0]", &logger).await;
+        assert!(result.is_ok());
+
+        let log_content = tokio::fs::read_to_string(logger.path()).await.unwrap();
+        assert!(log_content.contains(&workspace), "log: {}", log_content);
+    }
+
+    // ── File-check step ───────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_file_check_found() {
+        let dir = TempDir::new().unwrap();
+        let marker = dir.path().join("marker.txt");
+        std::fs::write(&marker, b"ok").unwrap();
+        let logger = test_logger(&dir).await;
+
+        let step = StepDef::FileCheck {
+            name: Some("check-marker".into()),
+            path: marker.to_str().unwrap().to_string(),
+        };
+        let result = execute_step(&step, "/tmp", "test-job", "check-marker", &logger).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_file_check_missing() {
+        let dir = TempDir::new().unwrap();
+        let logger = test_logger(&dir).await;
+        let step = StepDef::FileCheck {
+            name: None,
+            path: "/nonexistent/path/file.txt".into(),
+        };
+        let result = execute_step(&step, "/tmp", "test-job", "step[0]", &logger).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("file not found"));
+    }
+
+    // ── display_name ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn display_name_indexed() {
+        let step = StepDef::Shell { name: None, command: "echo".into(), workspace: None };
+        assert_eq!(step.display_name(2), "step[2]");
+    }
+
+    #[test]
+    fn display_name_named() {
+        let step = StepDef::Shell {
+            name: Some("run-tests".into()),
+            command: "cargo test".into(),
+            workspace: None,
+        };
+        assert_eq!(step.display_name(0), "run-tests");
+    }
+}
+
 // ── Runner discovery ──────────────────────────────────────────────────────────
 
 /// Find heartbeat-agent-runner.sh: binary dir → ~/.heartbeat/ → $PATH.

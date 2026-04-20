@@ -77,7 +77,7 @@ agent: shell
 cargo test 2>&1 | tee /tmp/test-output.txt
 ```
 
-### Chained steps (Milestone 3)
+### Chained steps
 
 ```
 ---
@@ -209,7 +209,7 @@ Requires Rust 1.75+.
 ```bash
 cargo build           # debug
 cargo build --release # optimised (~2-3 MB after strip)
-cargo test            # 28 unit tests
+cargo test            # 55 unit tests
 ```
 
 ---
@@ -220,7 +220,7 @@ cargo test            # 28 unit tests
 |---|---|
 | 1 — Core daemon (schedule, executor, hot-reload) | ✅ |
 | 2 — Control plane (IPC socket, CLI commands, log rotation) | ✅ |
-| 3 — Chained steps (multi-agent pipelines) | 🔲 |
+| 3 — Chained steps (multi-agent pipelines) | ✅ |
 | 4 — Distribution (`install.sh`, pre-built binaries, LaunchAgent) | 🔲 |
 
 Full specs: [`openspec/roadmap.md`](openspec/roadmap.md)
