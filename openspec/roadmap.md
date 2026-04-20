@@ -42,8 +42,8 @@ Make heartbeat installable without Rust.
 
 | # | Spec | Description | Status |
 |---|------|-------------|--------|
-| 9  | [install-distribution](specs/install-distribution/spec.md) | `install.sh`: download pre-built binary, verify checksum, configure PATH | 🔲 |
-| 10 | [autostart-launchagent](specs/autostart-launchagent/spec.md) | `heartbeat install --autostart`: macOS LaunchAgent for login persistence | 🔲 |
+| 9  | [install-distribution](specs/install-distribution/spec.md) | `install.sh`: download pre-built binary, verify checksum, configure PATH | ✅ |
+| 10 | [autostart-launchagent](specs/autostart-launchagent/spec.md) | `heartbeat install --autostart`: macOS LaunchAgent for login persistence | ✅ |
 
 ---
 

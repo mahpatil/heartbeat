@@ -14,14 +14,31 @@ inherits your full login environment: `$HOME`, `$PATH`, macOS Keychain,
 
 ---
 
-## Quick start
+## Install
+
+**One-liner (no Rust required):**
 
 ```bash
-# Build from source (Rust required)
+curl -fsSL https://raw.githubusercontent.com/mahpatil/heartbeat/main/install.sh | bash
+```
+
+Downloads the pre-built binary for your Mac (Apple Silicon or Intel),
+verifies the SHA-256 checksum, installs to `~/.heartbeat/`, and adds it to
+your `$PATH`. Cargo fallback is used automatically on non-macOS platforms.
+
+**Build from source:**
+
+```bash
 cargo build --release
 cp target/release/heartbeat ~/.heartbeat/
 cp heartbeat-agent-runner.sh ~/.heartbeat/
+```
 
+---
+
+## Quick start
+
+```bash
 # Start the daemon (foreground)
 heartbeat daemon
 
@@ -162,6 +179,7 @@ heartbeat stop <name>             # stop a job (removed from scheduler)
 heartbeat logs <name>             # print current log
 heartbeat logs <name> --follow    # tail -F the live log
 heartbeat install --autostart     # write ~/Library/LaunchAgents/com.heartbeat.plist
+heartbeat uninstall --autostart   # remove LaunchAgent
 ```
 
 All `heartbeat <cmd>` calls (except `daemon`) talk to the running daemon via a
@@ -202,14 +220,19 @@ Agent steps write through the runner's `-l` flag directly to the log.
 
 ---
 
-## Building
+## Building from source
 
 Requires Rust 1.75+.
 
 ```bash
 cargo build           # debug
 cargo build --release # optimised (~2-3 MB after strip)
-cargo test            # 55 unit tests
+cargo test            # 66 Rust unit tests + 15 shell tests
+```
+
+Shell tests (no network required):
+```bash
+bash tests/install/test_install_sh.sh
 ```
 
 ---
@@ -221,6 +244,6 @@ cargo test            # 55 unit tests
 | 1 — Core daemon (schedule, executor, hot-reload) | ✅ |
 | 2 — Control plane (IPC socket, CLI commands, log rotation) | ✅ |
 | 3 — Chained steps (multi-agent pipelines) | ✅ |
-| 4 — Distribution (`install.sh`, pre-built binaries, LaunchAgent) | 🔲 |
+| 4 — Distribution (`install.sh`, pre-built binaries, LaunchAgent) | ✅ |
 
 Full specs: [`openspec/roadmap.md`](openspec/roadmap.md)

@@ -62,6 +62,13 @@ enum Cmd {
         #[arg(long)]
         autostart: bool,
     },
+
+    /// Remove installed helpers
+    Uninstall {
+        /// Remove the LaunchAgent (disables auto-start on login)
+        #[arg(long)]
+        autostart: bool,
+    },
 }
 
 #[tokio::main]
@@ -112,6 +119,14 @@ async fn main() -> Result<()> {
 
         Cmd::Install { autostart } => {
             cli::install::run(&hb_dir, autostart).await?;
+        }
+
+        Cmd::Uninstall { autostart } => {
+            if autostart {
+                cli::install::uninstall().await?;
+            } else {
+                eprintln!("Use `heartbeat uninstall --autostart` to remove the LaunchAgent.");
+            }
         }
     }
 
