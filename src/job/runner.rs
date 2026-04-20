@@ -8,7 +8,6 @@ use super::config::JobConfig;
 use super::schedule::{secs_until_hhmm, Schedule};
 use crate::log::writer::JobLogger;
 use crate::task::executor::execute_step;
-use crate::task::types::StepDef;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JobStatus {
