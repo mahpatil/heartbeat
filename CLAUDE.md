@@ -1,64 +1,87 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
+
+## What this is
+
+Heartbeat is a Rust service (`heartbeat`) that runs agent/shell tasks defined in markup job files (`.yaml`, `.yml`, `.htb`). It watches `~/.heartbeat/jobs/`, spawns one tokio task per job, and honours cron schedules or one-shot `run_once_at` times.
+
+The Python v0.1.0 codebase is preserved at git tag `v0.1.0`.
 
 ## Commands
 
 ```bash
-# Run all tests
-python3 -m pytest tests/ -v
+# Build
+cargo build
 
-# Run a single test
-python3 -m pytest tests/test_heartbeat.py::TestTaskRunner::test_run_shell_success -v
+# Run (dev)
+cargo run
 
-# Run with coverage
-python3 -m pytest tests/ --cov=heartbeat --cov-report=term-missing
+# Tests
+cargo test
 
-# Lint
-ruff check .
-
-# Run a job manually (requires installed ~/.heartbeat setup)
-heartbeat run <job-name>
-
-# Run heartbeat.py directly with a config file
-python3 heartbeat.py -c jobs/sample-check.yaml
+# Lint / format
+cargo clippy
+cargo fmt
 ```
 
-## Architecture
+## Source layout
 
-The project has two entry points:
+```
+src/
+├── main.rs               # Entry point: loads .env, finds jobs dir, starts scheduler
+├── job/
+│   ├── mod.rs
+│   ├── config.rs         # JobConfig — loads .yaml/.htb job files
+│   └── scheduler.rs      # Per-job tokio tasks, cron loop, hot-reload poll
+└── task/
+    ├── mod.rs
+    ├── types.rs           # TaskDef enum (Run, Url, FileExists, Agent, AgentApi)
+    └── runner.rs          # run_task() — executes each variant
+```
 
-- **`heartbeat.py`** — Python core: parses configs, runs tasks, manages `run_once_at` logic, sends notifications
-- **`heartbeat`** — Bash CLI wrapper: manages job files in `~/.heartbeat/jobs/`, adds/removes crontab entries tagged `# HEARTBEAT`
-- **`heartbeat-agent-runner.sh`** — Can also be called directly from cron (no config file needed) for single-agent prompts: `heartbeat-agent-runner.sh [-l logfile] <agent> <cwd> <prompt> [params...]`
-
-### Core classes in `heartbeat.py`
-
-- **`Heartbeat`** — Orchestrates a job run. Loads config, checks `run_once_at` gate, iterates tasks, calls `on_fail` commands, sends notifications, and prints `REMOVE_CRON:<name>` to stdout if a `run_once_at` job completes (the bash CLI watches for this signal to remove the cron entry).
-- **`TaskRunner`** — Executes individual tasks by type: `run` (shell — routed through `heartbeat-agent-runner.sh` for cron-safe HOME/PATH), `url` (HTTP check), `file_exists`, `agent`/`claude`/`opencode`/`codex` (delegates to `heartbeat-agent-runner.sh`), `agent_api` (calls Anthropic or OpenAI SDK directly). All shell and agent execution goes through the runner; `folder` defaults to `~` when unset.
-- **`ConfigParser`** — Routes `.yaml`/`.yml` files to YAML parsing and `.htb` files to the natural-language parser (`_parse_nl`).
-- **`parse_simple_yaml()`** — Stdlib-only fallback YAML parser used when PyYAML is not installed.
-
-### Plugin system (`plugins/`)
-
-Notification plugins extend `BasePlugin` (ABC in `plugins/base.py`). Register new plugins in `plugins/__init__.py`'s `PLUGINS` dict. The `env:VAR_NAME` syntax in config values is resolved by `BasePlugin._get_env_var()`.
-
-### Job config formats
-
-**YAML** (`.yaml`/`.yml`) — top-level fields: `name`, `folder`, `frequency` (cron expression), `run_once_at` (ISO datetime), `tasks` (list), `notifications` (list).
-
-**Natural language** (`.htb`) — header comments `# Heartbeat:`, `# Folder:`, `# Frequency:`, `# Run once at:`; tasks listed under `Every N minutes:` block with keys like `URL reachable:`, `File exists:`, `Run:`, `Ask Claude:`.
-
-### Runtime file layout (installed)
+## Runtime layout (installed)
 
 ```
 ~/.heartbeat/
-├── heartbeat.py      # Installed core script
-├── heartbeat         # Installed CLI
-├── heartbeat-agent-runner.sh  # Installed agent CLI runner
-├── jobs/             # Job configs (*.yaml, *.htb)
-├── logs/             # Per-job log files (<name>.log)
-└── plugins/          # Notification plugins
+├── heartbeat                    # installed binary
+├── heartbeat-agent-runner.sh    # shell runner for agent tasks (kept from v0.1.0)
+├── jobs/                        # *.yaml / *.htb job files
+└── .env                         # secrets loaded at startup
 ```
 
-The repo itself is the development source; `install.sh` downloads files into `~/.heartbeat/` and adds it to `$PATH`.
+## Agent tasks
+
+`agent` tasks delegate to `heartbeat-agent-runner.sh` (resolved from binary dir → `~/.heartbeat/` → `$PATH`). The runner handles `claude`, `opencode`, and `codex`.
+
+## Job file formats
+
+### YAML
+
+```yaml
+name: my-check
+folder: ~/projects/foo
+frequency: "*/5 * * * *"   # cron expression
+tasks:
+  - type: url
+    url: https://example.com
+  - type: run
+    command: echo hello
+  - type: agent
+    kind: claude
+    prompt: "summarise recent git log"
+on_fail:
+  - notify-me.sh
+```
+
+### Natural language (.htb)
+
+```
+# Heartbeat: my-check
+# Folder: ~/projects/foo
+# Frequency: */5 * * * *
+
+URL reachable: https://example.com
+Run: echo hello
+Ask Claude: summarise recent git log
+```

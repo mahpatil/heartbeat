@@ -1,0 +1,38 @@
+[package]
+name = "heartbeat"
+version = "0.1.0"
+edition = "2024"
+description = "A lightweight service that runs agent/shell tasks from markup job files"
+
+[[bin]]
+name = "heartbeat"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+# YAML job file parsing
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+# Cron schedule parsing
+cron = "0.12"
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Config / env
+dotenvy = "0.15"
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+# Filesystem watching (for hot-reload of job files)
+notify = "6"
+# Anyhow error handling
+anyhow = "1"
+# HTTP checks
+reqwest = { version = "0.12", features = ["json"] }
+# ~ expansion
+shellexpand = "3"
+# which(1) for finding binaries
+which = "6"
+
+[dev-dependencies]
+tempfile = "3"
