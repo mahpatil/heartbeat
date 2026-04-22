@@ -32,6 +32,17 @@ enum Cmd {
         file: PathBuf,
     },
 
+    /// Interactively create a new .htb job file
+    New {
+        /// Output file path (defaults to <name>.htb in current directory)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Also apply the generated file to the jobs directory
+        #[arg(long)]
+        apply: bool,
+    },
+
     /// List all running jobs
     List,
 
@@ -99,6 +110,11 @@ async fn main() -> Result<()> {
 
         Cmd::Apply { file } => {
             cli::apply::run(&file, &hb_dir).await?;
+        }
+
+        Cmd::New { output, apply } => {
+            let apply_dir = if apply { Some(hb_dir.join("jobs")) } else { None };
+            cli::new::run(output, apply_dir.as_deref()).await?;
         }
 
         Cmd::List => {

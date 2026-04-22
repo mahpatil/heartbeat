@@ -4,5 +4,6 @@ pub mod install;
 pub mod ipc_client;
 pub mod list;
 pub mod logs;
+pub mod new;
 pub mod run_cmd;
 pub mod stop;
