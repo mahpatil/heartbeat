@@ -21,9 +21,10 @@ pub fn render(draft: &JobDraft) -> String {
         }
     }
 
-    // Determine if we can use body-as-prompt shorthand (single agent step)
+    // Shorthand (body-as-prompt) only when: single claude step, no flags.
     let use_shorthand = draft.steps.len() == 1
-        && matches!(&draft.steps[0], StepDraft::Agent { agent, .. } if agent == "claude");
+        && matches!(&draft.steps[0], StepDraft::Agent { agent, flags, .. }
+            if agent == "claude" && flags.is_empty());
 
     if !use_shorthand {
         lines.push("steps:".to_string());

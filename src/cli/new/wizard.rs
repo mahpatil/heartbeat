@@ -48,7 +48,7 @@ const SCHEDULE_PRESETS: &[(&str, &str)] = &[
     ("Every 6 hours", "every 6h"),
     ("Every day at midnight", "daily at 00:00"),
     ("Every day at 9am", "daily at 09:00"),
-    ("Every Monday at 9am", "weekly on Monday at 09:00"),
+    ("Every week", "every 7d"),
     ("Custom (type your own)", ""),
 ];
 
