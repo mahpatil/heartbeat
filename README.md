@@ -168,11 +168,53 @@ All agent invocations go through `heartbeat-agent-runner.sh`, which enriches
 
 ---
 
+## Creating jobs
+
+### Interactive wizard (humans)
+
+```bash
+heartbeat new           # launches a step-by-step wizard
+heartbeat new --apply   # wizard + immediately deploy to daemon
+```
+
+### Non-interactive flags (agents / CI)
+
+All parameters can be passed as flags — no TTY required. When `--name`,
+`--schedule`, and `--prompt` are all provided the wizard is skipped entirely.
+
+```bash
+heartbeat new \
+  --name daily-digest \
+  --schedule "every 1h" \
+  --prompt "/reviewer" \
+  --agent claude \
+  --workspace ~/projects/myapp \
+  --flags=--dangerously-skip-permissions \
+  --apply
+```
+
+| Flag | Required | Default | Description |
+|---|---|---|---|
+| `--name` | yes* | — | Job slug |
+| `--schedule` | yes* | — | Schedule string |
+| `--prompt` | yes* | — | Agent prompt (or skill, e.g. `/reviewer`) |
+| `--agent` | no | `claude` | Agent to use |
+| `--workspace` | no | `~` | Working directory |
+| `--flags` | no | — | Extra agent flags (repeatable, e.g. `--flags=--dangerously-skip-permissions`) |
+| `--output` | no | `<name>.htb` | Output file path |
+| `--apply` | no | false | Also deploy to daemon |
+
+\* All three required together to skip the wizard.
+
+---
+
 ## CLI reference
 
 ```
 heartbeat daemon                  # start the daemon (foreground)
-heartbeat apply <file.htb>        # install a job (hot-reload, no restart needed)
+heartbeat new                     # create a job (interactive wizard)
+heartbeat new --name … --apply    # create a job (non-interactive, agent-friendly)
+heartbeat apply <file.htb>        # deploy an existing job file (hot-reload)
 heartbeat list                    # show all jobs: name, status, schedule, next run
 heartbeat run <name>              # trigger an immediate run
 heartbeat stop <name>             # stop a job (removed from scheduler)
@@ -182,7 +224,7 @@ heartbeat install --autostart     # write ~/Library/LaunchAgents/com.heartbeat.p
 heartbeat uninstall --autostart   # remove LaunchAgent
 ```
 
-All `heartbeat <cmd>` calls (except `daemon`) talk to the running daemon via a
+All `heartbeat <cmd>` calls (except `daemon` and `new`) talk to the running daemon via a
 Unix socket at `~/.heartbeat/heartbeat.sock`.
 
 ---
@@ -294,7 +336,7 @@ Requires Rust 1.75+.
 ```bash
 cargo build           # debug
 cargo build --release # optimised (~2-3 MB after strip)
-cargo test            # 66 Rust unit tests + 15 shell tests
+cargo test            # 92 Rust unit tests + 15 shell tests
 ```
 
 Shell tests (no network required):
@@ -312,5 +354,6 @@ bash tests/install/test_install_sh.sh
 | 2 — Control plane (IPC socket, CLI commands, log rotation) | ✅ |
 | 3 — Chained steps (multi-agent pipelines) | ✅ |
 | 4 — Distribution (`install.sh`, pre-built binaries, LaunchAgent) | ✅ |
+| 5 — Job builder CLI (`heartbeat new`, non-interactive agent flags) | ✅ |
 
 Full specs: [`openspec/roadmap.md`](openspec/roadmap.md)
