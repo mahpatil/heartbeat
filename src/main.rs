@@ -32,6 +32,42 @@ enum Cmd {
         file: PathBuf,
     },
 
+    /// Interactively create a new .htb job file (omit flags for wizard)
+    New {
+        /// Output file path (defaults to <name>.htb in current directory)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Also apply the generated file to the jobs directory
+        #[arg(long)]
+        apply: bool,
+
+        // ── Non-interactive flags (agent / CI friendly) ───────────────────────
+        /// Job name (slug). Required for non-interactive mode.
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Schedule string, e.g. "every 1h", "daily at 09:00". Required for non-interactive mode.
+        #[arg(long)]
+        schedule: Option<String>,
+
+        /// Prompt for the agent step. Required for non-interactive mode.
+        #[arg(long)]
+        prompt: Option<String>,
+
+        /// Agent to use (claude, opencode, codex). Defaults to claude.
+        #[arg(long, default_value = "claude")]
+        agent: String,
+
+        /// Working directory for the job. Defaults to ~.
+        #[arg(long)]
+        workspace: Option<String>,
+
+        /// Extra agent flags, e.g. --flags=--dangerously-skip-permissions (repeatable)
+        #[arg(long = "flags", allow_hyphen_values = true)]
+        extra_flags: Vec<String>,
+    },
+
     /// List all running jobs
     List,
 
@@ -99,6 +135,22 @@ async fn main() -> Result<()> {
 
         Cmd::Apply { file } => {
             cli::apply::run(&file, &hb_dir).await?;
+        }
+
+        Cmd::New { output, apply, name, schedule, prompt, agent, workspace, extra_flags } => {
+            let apply_dir = if apply { Some(hb_dir.join("jobs")) } else { None };
+            let non_interactive = match (name, schedule, prompt) {
+                (Some(n), Some(s), Some(p)) => Some(cli::new::NonInteractiveArgs {
+                    name: n,
+                    schedule: s,
+                    prompt: p,
+                    agent,
+                    workspace,
+                    extra_flags,
+                }),
+                _ => None,
+            };
+            cli::new::run(output, apply_dir.as_deref(), non_interactive).await?;
         }
 
         Cmd::List => {

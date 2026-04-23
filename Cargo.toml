@@ -34,6 +34,8 @@ reqwest = { version = "0.12", default-features = false, features = ["native-tls"
 shellexpand = "3"
 # Binary lookup
 which = "6"
+# Interactive prompts for `new` wizard
+dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 
 [dev-dependencies]
 tempfile = "3"
