@@ -2,13 +2,19 @@
 # Heartbeat installer — no Rust required for end users.
 # Usage: curl -fsSL https://raw.githubusercontent.com/mahpatil/heartbeat/main/install.sh | bash
 # Options:
-#   --claude-skill   Also install the /heartbeat slash command for Claude Code
+#   --claude-skill    Also install the /heartbeat slash command for Claude Code
+#   --opencode-skill  Also install the heartbeat skill for opencode
+#   --codex-skill     Also install the heartbeat skill for codex
 set -euo pipefail
 
 INSTALL_CLAUDE_SKILL=false
+INSTALL_OPENCODE_SKILL=false
+INSTALL_CODEX_SKILL=false
 for arg in "$@"; do
     case "$arg" in
-        --claude-skill) INSTALL_CLAUDE_SKILL=true ;;
+        --claude-skill)   INSTALL_CLAUDE_SKILL=true ;;
+        --opencode-skill) INSTALL_OPENCODE_SKILL=true ;;
+        --codex-skill)    INSTALL_CODEX_SKILL=true ;;
     esac
 done
 
@@ -152,7 +158,7 @@ for RC in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do
     fi
 done
 
-# ── Claude Code skill (optional) ─────────────────────────────────────────────
+# ── Skill installs (optional) ─────────────────────────────────────────────────
 
 install_claude_skill() {
     local cmd_dir="$HOME/.claude/commands"
@@ -172,8 +178,52 @@ install_claude_skill() {
     info "Use it in Claude Code with: /heartbeat <description>"
 }
 
+install_opencode_skill() {
+    local skill_dir="$HOME/.config/opencode/skills/heartbeat"
+    local skill_file="$skill_dir/SKILL.md"
+    local skill_url="$RAW_BASE/claude-commands/heartbeat-opencode/SKILL.md"
+
+    mkdir -p "$skill_dir"
+
+    if [[ -f "$(pwd)/claude-commands/heartbeat-opencode/SKILL.md" ]]; then
+        cp "$(pwd)/claude-commands/heartbeat-opencode/SKILL.md" "$skill_file"
+    else
+        info "Installing heartbeat opencode skill..."
+        curl -fsSL "$skill_url" -o "$skill_file"
+    fi
+
+    info "Installed opencode skill: $skill_file"
+    info "Use it in opencode: schedule <description>"
+}
+
+install_codex_skill() {
+    local skill_dir="$HOME/.codex/skills/heartbeat"
+    local skill_file="$skill_dir/SKILL.md"
+    local skill_url="$RAW_BASE/claude-commands/heartbeat-codex/SKILL.md"
+
+    mkdir -p "$skill_dir"
+
+    if [[ -f "$(pwd)/claude-commands/heartbeat-codex/SKILL.md" ]]; then
+        cp "$(pwd)/claude-commands/heartbeat-codex/SKILL.md" "$skill_file"
+    else
+        info "Installing heartbeat codex skill..."
+        curl -fsSL "$skill_url" -o "$skill_file"
+    fi
+
+    info "Installed codex skill: $skill_file"
+    info "Use it in codex: schedule <description>"
+}
+
 if [[ "$INSTALL_CLAUDE_SKILL" == "true" ]]; then
     install_claude_skill
+fi
+
+if [[ "$INSTALL_OPENCODE_SKILL" == "true" ]]; then
+    install_opencode_skill
+fi
+
+if [[ "$INSTALL_CODEX_SKILL" == "true" ]]; then
+    install_codex_skill
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
@@ -189,6 +239,12 @@ echo "    3. Apply a job:        heartbeat apply my-job.htb"
 echo "    4. Optional autostart: heartbeat install --autostart"
 if [[ "$INSTALL_CLAUDE_SKILL" == "false" ]]; then
 echo "    5. Claude Code skill:  re-run with --claude-skill flag"
+fi
+if [[ "$INSTALL_OPENCODE_SKILL" == "false" ]]; then
+echo "    6. opencode skill:     re-run with --opencode-skill flag"
+fi
+if [[ "$INSTALL_CODEX_SKILL" == "false" ]]; then
+echo "    7. codex skill:        re-run with --codex-skill flag"
 fi
 echo
 echo "Done. Run: heartbeat daemon"

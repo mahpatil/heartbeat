@@ -98,9 +98,17 @@ enum Cmd {
         #[arg(long)]
         autostart: bool,
 
-        /// Install the /schedule-job slash command for Claude Code
+        /// Install the /heartbeat slash command for Claude Code
         #[arg(long)]
         claude_skill: bool,
+
+        /// Install the heartbeat skill for opencode (~/.config/opencode/skills/heartbeat/)
+        #[arg(long)]
+        opencode_skill: bool,
+
+        /// Install the heartbeat skill for codex (~/.codex/skills/heartbeat/)
+        #[arg(long)]
+        codex_skill: bool,
     },
 
     /// Remove installed helpers
@@ -108,6 +116,14 @@ enum Cmd {
         /// Remove the LaunchAgent (disables auto-start on login)
         #[arg(long)]
         autostart: bool,
+
+        /// Remove the opencode heartbeat skill
+        #[arg(long)]
+        opencode_skill: bool,
+
+        /// Remove the codex heartbeat skill
+        #[arg(long)]
+        codex_skill: bool,
     },
 }
 
@@ -173,15 +189,24 @@ async fn main() -> Result<()> {
             cli::logs::run(&name, &hb_dir, follow).await?;
         }
 
-        Cmd::Install { autostart, claude_skill } => {
-            cli::install::run(&hb_dir, autostart, claude_skill).await?;
+        Cmd::Install { autostart, claude_skill, opencode_skill, codex_skill } => {
+            cli::install::run(&hb_dir, autostart, claude_skill, opencode_skill, codex_skill).await?;
         }
 
-        Cmd::Uninstall { autostart } => {
+        Cmd::Uninstall { autostart, opencode_skill, codex_skill } => {
             if autostart {
-                cli::install::uninstall().await?;
-            } else {
+                cli::install::uninstall_autostart().await?;
+            }
+            if opencode_skill {
+                cli::install::uninstall_opencode_skill().await?;
+            }
+            if codex_skill {
+                cli::install::uninstall_codex_skill().await?;
+            }
+            if !autostart && !opencode_skill && !codex_skill {
                 eprintln!("Use `heartbeat uninstall --autostart` to remove the LaunchAgent.");
+                eprintln!("Use `heartbeat uninstall --opencode-skill` to remove the opencode skill.");
+                eprintln!("Use `heartbeat uninstall --codex-skill` to remove the codex skill.");
             }
         }
     }

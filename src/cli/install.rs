@@ -4,8 +4,8 @@ use tracing::info;
 
 // ── Public entry points ───────────────────────────────────────────────────────
 
-/// `heartbeat install [--autostart] [--claude-skill]`
-pub async fn run(hb_dir: &PathBuf, autostart: bool, claude_skill: bool) -> Result<()> {
+/// `heartbeat install [--autostart] [--claude-skill] [--opencode-skill] [--codex-skill]`
+pub async fn run(hb_dir: &PathBuf, autostart: bool, claude_skill: bool, opencode_skill: bool, codex_skill: bool) -> Result<()> {
     let bin = hb_dir.join("heartbeat");
     if !bin.exists() {
         anyhow::bail!(
@@ -22,17 +22,27 @@ pub async fn run(hb_dir: &PathBuf, autostart: bool, claude_skill: bool) -> Resul
         install_claude_skill(hb_dir).await?;
     }
 
-    if !autostart && !claude_skill {
+    if opencode_skill {
+        install_opencode_skill(hb_dir).await?;
+    }
+
+    if codex_skill {
+        install_codex_skill(hb_dir).await?;
+    }
+
+    if !autostart && !claude_skill && !opencode_skill && !codex_skill {
         println!("Options:");
-        println!("  heartbeat install --autostart     enable auto-start on login (LaunchAgent)");
-        println!("  heartbeat install --claude-skill  install /heartbeat Claude Code skill");
+        println!("  heartbeat install --autostart      enable auto-start on login (LaunchAgent)");
+        println!("  heartbeat install --claude-skill   install /heartbeat Claude Code skill");
+        println!("  heartbeat install --opencode-skill install heartbeat skill for opencode");
+        println!("  heartbeat install --codex-skill    install heartbeat skill for codex");
     }
 
     Ok(())
 }
 
 /// `heartbeat uninstall --autostart`
-pub async fn uninstall() -> Result<()> {
+pub async fn uninstall_autostart() -> Result<()> {
     let home = home_dir()?;
     let plist = plist_path(&home);
 
@@ -53,7 +63,65 @@ pub async fn uninstall() -> Result<()> {
     Ok(())
 }
 
+/// `heartbeat uninstall --opencode-skill`
+pub async fn uninstall_opencode_skill() -> Result<()> {
+    let skill_dir = PathBuf::from(home_dir()?).join(".config/opencode/skills/heartbeat");
+    if skill_dir.exists() {
+        tokio::fs::remove_dir_all(&skill_dir).await?;
+        println!("Removed opencode skill: {}", skill_dir.display());
+    } else {
+        println!("opencode skill not installed — nothing to remove.");
+    }
+    Ok(())
+}
+
+/// `heartbeat uninstall --codex-skill`
+pub async fn uninstall_codex_skill() -> Result<()> {
+    let skill_dir = PathBuf::from(home_dir()?).join(".codex/skills/heartbeat");
+    if skill_dir.exists() {
+        tokio::fs::remove_dir_all(&skill_dir).await?;
+        println!("Removed codex skill: {}", skill_dir.display());
+    } else {
+        println!("codex skill not installed — nothing to remove.");
+    }
+    Ok(())
+}
+
 // ── Core implementation ───────────────────────────────────────────────────────
+
+async fn install_opencode_skill(_hb_dir: &PathBuf) -> Result<()> {
+    let skill_dir = PathBuf::from(home_dir()?).join(".config/opencode/skills/heartbeat");
+    tokio::fs::create_dir_all(&skill_dir).await?;
+    let dest = skill_dir.join("SKILL.md");
+
+    let bundled = _hb_dir.join("claude-commands").join("heartbeat-opencode").join("SKILL.md");
+    if bundled.exists() {
+        tokio::fs::copy(&bundled, &dest).await?;
+    } else {
+        tokio::fs::write(&dest, include_str!("../../claude-commands/heartbeat-opencode/SKILL.md")).await?;
+    }
+
+    println!("Installed opencode skill: {}", dest.display());
+    println!("Use in opencode: schedule <description>");
+    Ok(())
+}
+
+async fn install_codex_skill(_hb_dir: &PathBuf) -> Result<()> {
+    let skill_dir = PathBuf::from(home_dir()?).join(".codex/skills/heartbeat");
+    tokio::fs::create_dir_all(&skill_dir).await?;
+    let dest = skill_dir.join("SKILL.md");
+
+    let bundled = _hb_dir.join("claude-commands").join("heartbeat-codex").join("SKILL.md");
+    if bundled.exists() {
+        tokio::fs::copy(&bundled, &dest).await?;
+    } else {
+        tokio::fs::write(&dest, include_str!("../../claude-commands/heartbeat-codex/SKILL.md")).await?;
+    }
+
+    println!("Installed codex skill: {}", dest.display());
+    println!("Use in codex: schedule <description>");
+    Ok(())
+}
 
 async fn install_claude_skill(hb_dir: &PathBuf) -> Result<()> {
     let cmd_dir = PathBuf::from(home_dir()?).join(".claude").join("commands");

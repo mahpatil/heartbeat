@@ -24,6 +24,15 @@ curl -fsSL https://raw.githubusercontent.com/mahpatil/heartbeat/main/install.sh 
 
 # Binary + /heartbeat Claude Code skill
 curl -fsSL https://raw.githubusercontent.com/mahpatil/heartbeat/main/install.sh | bash -s -- --claude-skill
+
+# Binary + opencode skill
+curl -fsSL https://raw.githubusercontent.com/mahpatil/heartbeat/main/install.sh | bash -s -- --opencode-skill
+
+# Binary + codex skill
+curl -fsSL https://raw.githubusercontent.com/mahpatil/heartbeat/main/install.sh | bash -s -- --codex-skill
+
+# All skills at once
+curl -fsSL https://raw.githubusercontent.com/mahpatil/heartbeat/main/install.sh | bash -s -- --claude-skill --opencode-skill --codex-skill
 ```
 
 Downloads the pre-built binary for your Mac (Apple Silicon or Intel),
@@ -215,18 +224,22 @@ heartbeat new \
 ## CLI reference
 
 ```
-heartbeat daemon                  # start the daemon (foreground)
-heartbeat new                     # create a job (interactive wizard)
-heartbeat new --name … --apply    # create a job (non-interactive, agent-friendly)
-heartbeat apply <file.htb>        # deploy an existing job file (hot-reload)
-heartbeat list                    # show all jobs: name, status, schedule, next run
-heartbeat run <name>              # trigger an immediate run
-heartbeat stop <name>             # stop a job (removed from scheduler)
-heartbeat logs <name>             # print current log
-heartbeat logs <name> --follow    # tail -F the live log
-heartbeat install --autostart     # write ~/Library/LaunchAgents/com.heartbeat.plist
-heartbeat install --claude-skill  # install /heartbeat slash command for Claude Code
-heartbeat uninstall --autostart   # remove LaunchAgent
+heartbeat daemon                    # start the daemon (foreground)
+heartbeat new                       # create a job (interactive wizard)
+heartbeat new --name … --apply      # create a job (non-interactive, agent-friendly)
+heartbeat apply <file.htb>          # deploy an existing job file (hot-reload)
+heartbeat list                      # show all jobs: name, status, schedule, next run
+heartbeat run <name>                # trigger an immediate run
+heartbeat stop <name>               # stop a job (removed from scheduler)
+heartbeat logs <name>               # print current log
+heartbeat logs <name> --follow      # tail -F the live log
+heartbeat install --autostart       # write ~/Library/LaunchAgents/com.heartbeat.plist
+heartbeat install --claude-skill    # install /heartbeat slash command for Claude Code
+heartbeat install --opencode-skill  # install heartbeat skill for opencode
+heartbeat install --codex-skill     # install heartbeat skill for codex
+heartbeat uninstall --autostart     # remove LaunchAgent
+heartbeat uninstall --opencode-skill  # remove opencode skill
+heartbeat uninstall --codex-skill     # remove codex skill
 ```
 
 All `heartbeat <cmd>` calls (except `daemon` and `new`) talk to the running daemon via a
@@ -234,16 +247,17 @@ Unix socket at `~/.heartbeat/heartbeat.sock`.
 
 ---
 
-## `/heartbeat` — Claude Code slash command
+## Native agent skills
 
-Install the `/heartbeat` skill to schedule jobs using natural language directly
-from Claude Code, opencode, or codex:
+Install the heartbeat skill for whichever agent(s) you use. Each lets you schedule jobs using natural language directly from your agent's chat interface.
 
 ```bash
-heartbeat install --claude-skill
+heartbeat install --claude-skill    # Claude Code → /heartbeat <description>
+heartbeat install --opencode-skill  # opencode → schedule <description>
+heartbeat install --codex-skill     # codex → schedule <description>
 ```
 
-Then use it in any Claude Code session:
+### Claude Code (`/heartbeat`)
 
 ```
 /heartbeat review auth code every night at 2am in ~/projects/myapp
@@ -253,8 +267,19 @@ Then use it in any Claude Code session:
 /heartbeat implement the spec in openspec/features/payments.md at 9am
 ```
 
-The skill infers the job name, schedule, agent, and workspace from plain English
-and calls `heartbeat new` non-interactively — no wizard, no TTY required.
+### opencode / codex (heartbeat skill)
+
+Once installed, the skill is automatically available. Just describe what you want scheduled in plain English — the agent translates it to a `heartbeat new` call:
+
+```
+schedule review auth code every night at 2am in ~/projects/myapp
+schedule run tests every 30 minutes
+schedule check https://myapp.com/health every 5 minutes
+schedule summarise git log daily in ~/projects/backend
+```
+
+All three skills infer the job name, schedule, agent, and workspace from plain English
+and call `heartbeat new` non-interactively — no wizard, no TTY required.
 
 **Agent inference:**
 
