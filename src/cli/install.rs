@@ -4,8 +4,8 @@ use tracing::info;
 
 // ── Public entry points ───────────────────────────────────────────────────────
 
-/// `heartbeat install [--autostart]`
-pub async fn run(hb_dir: &PathBuf, autostart: bool) -> Result<()> {
+/// `heartbeat install [--autostart] [--claude-skill]`
+pub async fn run(hb_dir: &PathBuf, autostart: bool, claude_skill: bool) -> Result<()> {
     let bin = hb_dir.join("heartbeat");
     if !bin.exists() {
         anyhow::bail!(
@@ -16,8 +16,16 @@ pub async fn run(hb_dir: &PathBuf, autostart: bool) -> Result<()> {
 
     if autostart {
         install_launchagent(hb_dir, &bin).await?;
-    } else {
-        println!("Run `heartbeat install --autostart` to enable auto-start on login.");
+    }
+
+    if claude_skill {
+        install_claude_skill(hb_dir).await?;
+    }
+
+    if !autostart && !claude_skill {
+        println!("Options:");
+        println!("  heartbeat install --autostart     enable auto-start on login (LaunchAgent)");
+        println!("  heartbeat install --claude-skill  install /schedule-job Claude Code skill");
     }
 
     Ok(())
@@ -46,6 +54,36 @@ pub async fn uninstall() -> Result<()> {
 }
 
 // ── Core implementation ───────────────────────────────────────────────────────
+
+async fn install_claude_skill(hb_dir: &PathBuf) -> Result<()> {
+    let cmd_dir = PathBuf::from(home_dir()?).join(".claude").join("commands");
+    tokio::fs::create_dir_all(&cmd_dir).await?;
+
+    let dest = cmd_dir.join("schedule-job.md");
+
+    // Prefer a bundled copy next to the binary, fall back to the repo source.
+    let bundled = hb_dir.join("claude-commands").join("schedule-job.md");
+    let repo_copy = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("../claude-commands/schedule-job.md")));
+
+    let src = if bundled.exists() {
+        Some(bundled)
+    } else {
+        repo_copy.filter(|p| p.exists())
+    };
+
+    if let Some(src) = src {
+        tokio::fs::copy(&src, &dest).await?;
+    } else {
+        // Embed the skill content directly as a fallback.
+        tokio::fs::write(&dest, include_str!("../../claude-commands/schedule-job.md")).await?;
+    }
+
+    println!("Installed Claude Code skill: {}", dest.display());
+    println!("Use in Claude Code: /schedule-job <description>");
+    Ok(())
+}
 
 async fn install_launchagent(hb_dir: &PathBuf, bin: &PathBuf) -> Result<()> {
     let home = home_dir()?;

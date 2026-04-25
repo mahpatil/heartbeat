@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # Heartbeat installer — no Rust required for end users.
 # Usage: curl -fsSL https://raw.githubusercontent.com/mahpatil/heartbeat/main/install.sh | bash
+# Options:
+#   --claude-skill   Also install the /schedule-job slash command for Claude Code
 set -euo pipefail
+
+INSTALL_CLAUDE_SKILL=false
+for arg in "$@"; do
+    case "$arg" in
+        --claude-skill) INSTALL_CLAUDE_SKILL=true ;;
+    esac
+done
 
 REPO="mahpatil/heartbeat"
 INSTALL_DIR="${HEARTBEAT_DIR:-$HOME/.heartbeat}"
@@ -143,6 +152,30 @@ for RC in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do
     fi
 done
 
+# ── Claude Code skill (optional) ─────────────────────────────────────────────
+
+install_claude_skill() {
+    local cmd_dir="$HOME/.claude/commands"
+    local cmd_file="$cmd_dir/schedule-job.md"
+    local skill_url="$RAW_BASE/claude-commands/schedule-job.md"
+
+    mkdir -p "$cmd_dir"
+
+    if [[ -f "$(pwd)/claude-commands/schedule-job.md" ]]; then
+        cp "$(pwd)/claude-commands/schedule-job.md" "$cmd_file"
+    else
+        info "Installing /schedule-job Claude Code skill..."
+        curl -fsSL "$skill_url" -o "$cmd_file"
+    fi
+
+    info "Installed Claude Code skill: $cmd_file"
+    info "Use it in Claude Code with: /schedule-job <description>"
+}
+
+if [[ "$INSTALL_CLAUDE_SKILL" == "true" ]]; then
+    install_claude_skill
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 VERSION="$("$BIN" --version 2>/dev/null || echo "${LATEST:-dev}")"
@@ -154,5 +187,8 @@ echo "    1. Reload your shell:  source ~/.zshrc   (or open a new terminal)"
 echo "    2. Start the daemon:   heartbeat daemon"
 echo "    3. Apply a job:        heartbeat apply my-job.htb"
 echo "    4. Optional autostart: heartbeat install --autostart"
+if [[ "$INSTALL_CLAUDE_SKILL" == "false" ]]; then
+echo "    5. Claude Code skill:  re-run with --claude-skill flag"
+fi
 echo
 echo "Done. Run: heartbeat daemon"

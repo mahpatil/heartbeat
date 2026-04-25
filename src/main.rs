@@ -92,11 +92,15 @@ enum Cmd {
         follow: bool,
     },
 
-    /// Install helpers (e.g. macOS LaunchAgent for auto-start)
+    /// Install helpers (e.g. macOS LaunchAgent for auto-start, Claude Code skill)
     Install {
         /// Register a LaunchAgent so the daemon starts on login
         #[arg(long)]
         autostart: bool,
+
+        /// Install the /schedule-job slash command for Claude Code
+        #[arg(long)]
+        claude_skill: bool,
     },
 
     /// Remove installed helpers
@@ -169,8 +173,8 @@ async fn main() -> Result<()> {
             cli::logs::run(&name, &hb_dir, follow).await?;
         }
 
-        Cmd::Install { autostart } => {
-            cli::install::run(&hb_dir, autostart).await?;
+        Cmd::Install { autostart, claude_skill } => {
+            cli::install::run(&hb_dir, autostart, claude_skill).await?;
         }
 
         Cmd::Uninstall { autostart } => {
