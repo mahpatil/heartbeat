@@ -19,7 +19,11 @@ inherits your full login environment: `$HOME`, `$PATH`, macOS Keychain,
 **One-liner (no Rust required):**
 
 ```bash
+# Binary + daemon
 curl -fsSL https://raw.githubusercontent.com/mahpatil/heartbeat/main/install.sh | bash
+
+# Binary + /heartbeat Claude Code skill
+curl -fsSL https://raw.githubusercontent.com/mahpatil/heartbeat/main/install.sh | bash -s -- --claude-skill
 ```
 
 Downloads the pre-built binary for your Mac (Apple Silicon or Intel),
@@ -221,6 +225,7 @@ heartbeat stop <name>             # stop a job (removed from scheduler)
 heartbeat logs <name>             # print current log
 heartbeat logs <name> --follow    # tail -F the live log
 heartbeat install --autostart     # write ~/Library/LaunchAgents/com.heartbeat.plist
+heartbeat install --claude-skill  # install /heartbeat slash command for Claude Code
 heartbeat uninstall --autostart   # remove LaunchAgent
 ```
 
@@ -229,11 +234,42 @@ Unix socket at `~/.heartbeat/heartbeat.sock`.
 
 ---
 
-## Using Claude Code skills
+## `/heartbeat` — Claude Code slash command
 
-Claude Code has built-in **skills** (slash commands) that you can invoke inside
-heartbeat agent prompts — letting you run `/coder`, `/reviewer`, `/spec`, and
-others on a schedule or as pipeline steps.
+Install the `/heartbeat` skill to schedule jobs using natural language directly
+from Claude Code, opencode, or codex:
+
+```bash
+heartbeat install --claude-skill
+```
+
+Then use it in any Claude Code session:
+
+```
+/heartbeat review auth code every night at 2am in ~/projects/myapp
+/heartbeat run /reviewer on this repo every hour
+/heartbeat check https://myapp.com/health every 5 minutes with opencode
+/heartbeat summarise git log daily using codex in ~/projects/backend
+/heartbeat implement the spec in openspec/features/payments.md at 9am
+```
+
+The skill infers the job name, schedule, agent, and workspace from plain English
+and calls `heartbeat new` non-interactively — no wizard, no TTY required.
+
+**Agent inference:**
+
+| You say | Agent used | Extra flags |
+|---|---|---|
+| _(default)_ or "with claude" | `claude` | `--dangerously-skip-permissions` |
+| "with opencode" / "using opencode" | `opencode` | _(none)_ |
+| "with codex" / "using codex" | `codex` | _(none)_ |
+
+---
+
+## Using Claude Code skills inside jobs
+
+Claude Code **skills** (slash commands like `/coder`, `/reviewer`) can be used
+as the `prompt` in any agent step — running them on a schedule or as pipeline stages.
 
 ### Single-skill job
 
@@ -247,10 +283,6 @@ flags: ["--dangerously-skip-permissions"]
 ---
 /reviewer
 ```
-
-Runs `claude -p "/reviewer" --dangerously-skip-permissions` every night at 23:00
-in `~/projects/myapp`. The `/reviewer` skill reads staged changes and produces a
-structured review report.
 
 ### Skills as pipeline steps
 
@@ -282,17 +314,16 @@ steps:
 
 ### Common skills reference
 
-| Skill | Prompt | What it does |
-|---|---|---|
-| `/coder <spec>` | `/coder openspec/features/foo.md` | Implements a spec with TDD |
-| `/reviewer` | `/reviewer` | Reviews staged changes for quality/security |
-| `/spec <issue>` | `/spec openspec/issues/42.md` | Generates an OpenSpec from an issue |
-| `/tdd` | `/tdd` | Red-green-refactor loop |
-| `/git-commit` | `/git-commit` | Stages and commits with a generated message |
+| Skill | What it does |
+|---|---|
+| `/coder <spec>` | Implements a spec with TDD |
+| `/reviewer` | Reviews staged changes for quality/security |
+| `/spec <issue>` | Generates an OpenSpec from an issue |
+| `/tdd` | Red-green-refactor loop |
+| `/git-commit` | Stages and commits with a generated message |
 
-> **`--dangerously-skip-permissions`** is required for unattended runs —
-> otherwise Claude Code will pause and wait for interactive approval.
-> Only use it in jobs with a known, trusted workspace.
+> **`--dangerously-skip-permissions`** is required for unattended Claude runs.
+> opencode and codex run headlessly without it.
 
 ---
 
