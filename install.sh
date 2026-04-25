@@ -2,7 +2,7 @@
 # Heartbeat installer — no Rust required for end users.
 # Usage: curl -fsSL https://raw.githubusercontent.com/mahpatil/heartbeat/main/install.sh | bash
 # Options:
-#   --claude-skill   Also install the /schedule-job slash command for Claude Code
+#   --claude-skill   Also install the /heartbeat slash command for Claude Code
 set -euo pipefail
 
 INSTALL_CLAUDE_SKILL=false
@@ -156,20 +156,20 @@ done
 
 install_claude_skill() {
     local cmd_dir="$HOME/.claude/commands"
-    local cmd_file="$cmd_dir/schedule-job.md"
-    local skill_url="$RAW_BASE/claude-commands/schedule-job.md"
+    local cmd_file="$cmd_dir/heartbeat.md"
+    local skill_url="$RAW_BASE/claude-commands/heartbeat.md"
 
     mkdir -p "$cmd_dir"
 
-    if [[ -f "$(pwd)/claude-commands/schedule-job.md" ]]; then
-        cp "$(pwd)/claude-commands/schedule-job.md" "$cmd_file"
+    if [[ -f "$(pwd)/claude-commands/heartbeat.md" ]]; then
+        cp "$(pwd)/claude-commands/heartbeat.md" "$cmd_file"
     else
-        info "Installing /schedule-job Claude Code skill..."
+        info "Installing /heartbeat Claude Code skill..."
         curl -fsSL "$skill_url" -o "$cmd_file"
     fi
 
     info "Installed Claude Code skill: $cmd_file"
-    info "Use it in Claude Code with: /schedule-job <description>"
+    info "Use it in Claude Code with: /heartbeat <description>"
 }
 
 if [[ "$INSTALL_CLAUDE_SKILL" == "true" ]]; then

@@ -1,4 +1,4 @@
-<!-- heartbeat: schedule-job command -->
+<!-- heartbeat: /heartbeat command -->
 Schedule a recurring heartbeat job from natural language: "$ARGUMENTS"
 
 ---
@@ -18,8 +18,24 @@ From `$ARGUMENTS` extract:
 | **name** | kebab-case slug from the subject (e.g. "review auth code" → `auth-code-review`) |
 | **schedule** | time phrase → heartbeat syntax (see table below) |
 | **prompt** | the action to perform, verbatim or cleaned up |
-| **agent** | `claude` unless the user says opencode or codex |
+| **agent** | see agent inference table below |
 | **workspace** | explicit path if mentioned, otherwise current directory (`$(pwd)`) |
+
+**Agent inference:**
+
+| User says | agent flag |
+|---|---|
+| "with claude", "ask claude", "claude", default | `claude` |
+| "with opencode", "using opencode", "opencode" | `opencode` |
+| "with codex", "using codex", "codex" | `codex` |
+
+**Per-agent flags:**
+
+| Agent | Always add |
+|---|---|
+| `claude` | `--flags=--dangerously-skip-permissions` |
+| `opencode` | _(none by default — opencode runs headlessly)_ |
+| `codex` | _(none by default)_ |
 
 **Schedule inference:**
 
@@ -38,18 +54,41 @@ From `$ARGUMENTS` extract:
 
 ## Step 2 — Run the command
 
+Show the command before running it so the user can see what will be executed.
+
+**Claude:**
 ```bash
 heartbeat new \
   --name <name> \
   --schedule "<schedule>" \
   --prompt "<prompt>" \
-  --agent <agent> \
+  --agent claude \
   --workspace <workspace> \
   --flags=--dangerously-skip-permissions \
   --apply
 ```
 
-Show the command before running it so the user can see what will be executed.
+**opencode:**
+```bash
+heartbeat new \
+  --name <name> \
+  --schedule "<schedule>" \
+  --prompt "<prompt>" \
+  --agent opencode \
+  --workspace <workspace> \
+  --apply
+```
+
+**codex:**
+```bash
+heartbeat new \
+  --name <name> \
+  --schedule "<schedule>" \
+  --prompt "<prompt>" \
+  --agent codex \
+  --workspace <workspace> \
+  --apply
+```
 
 ---
 
@@ -62,8 +101,10 @@ Run `heartbeat list` and show the output so the user can confirm the job is sche
 ## Examples
 
 ```
-/schedule-job review auth code every night at 2am in ~/projects/myapp
-/schedule-job run /reviewer on this repo every hour
-/schedule-job check https://myapp.com/health every 5 minutes
-/schedule-job implement the spec in openspec/features/payments.md at 9am tomorrow
+/heartbeat review auth code every night at 2am in ~/projects/myapp
+/heartbeat run /reviewer on this repo every hour
+/heartbeat check https://myapp.com/health every 5 minutes
+/heartbeat implement the spec in openspec/features/payments.md with opencode every day at 9am
+/heartbeat summarise git log daily using codex in ~/projects/backend
+/heartbeat run /coder on openspec/issues/42.md once at 14:00
 ```

@@ -25,7 +25,7 @@ pub async fn run(hb_dir: &PathBuf, autostart: bool, claude_skill: bool) -> Resul
     if !autostart && !claude_skill {
         println!("Options:");
         println!("  heartbeat install --autostart     enable auto-start on login (LaunchAgent)");
-        println!("  heartbeat install --claude-skill  install /schedule-job Claude Code skill");
+        println!("  heartbeat install --claude-skill  install /heartbeat Claude Code skill");
     }
 
     Ok(())
@@ -59,13 +59,13 @@ async fn install_claude_skill(hb_dir: &PathBuf) -> Result<()> {
     let cmd_dir = PathBuf::from(home_dir()?).join(".claude").join("commands");
     tokio::fs::create_dir_all(&cmd_dir).await?;
 
-    let dest = cmd_dir.join("schedule-job.md");
+    let dest = cmd_dir.join("heartbeat.md");
 
     // Prefer a bundled copy next to the binary, fall back to the repo source.
-    let bundled = hb_dir.join("claude-commands").join("schedule-job.md");
+    let bundled = hb_dir.join("claude-commands").join("heartbeat.md");
     let repo_copy = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|d| d.join("../claude-commands/schedule-job.md")));
+        .and_then(|p| p.parent().map(|d| d.join("../claude-commands/heartbeat.md")));
 
     let src = if bundled.exists() {
         Some(bundled)
@@ -77,11 +77,11 @@ async fn install_claude_skill(hb_dir: &PathBuf) -> Result<()> {
         tokio::fs::copy(&src, &dest).await?;
     } else {
         // Embed the skill content directly as a fallback.
-        tokio::fs::write(&dest, include_str!("../../claude-commands/schedule-job.md")).await?;
+        tokio::fs::write(&dest, include_str!("../../claude-commands/heartbeat.md")).await?;
     }
 
     println!("Installed Claude Code skill: {}", dest.display());
-    println!("Use in Claude Code: /schedule-job <description>");
+    println!("Use in Claude Code: /heartbeat <description>");
     Ok(())
 }
 
