@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 #[derive(Debug, Clone)]
 pub enum StepDef {
     Agent {
@@ -7,11 +9,15 @@ pub enum StepDef {
         flags: Vec<String>,
         /// Per-step workspace override (Milestone 3 chained-steps).
         workspace: Option<String>,
+        /// Kill the agent process after this duration.
+        timeout: Option<Duration>,
     },
     Shell {
         name: Option<String>,
         command: String,
         workspace: Option<String>,
+        /// Kill the shell process after this duration.
+        timeout: Option<Duration>,
     },
     UrlCheck {
         name: Option<String>,

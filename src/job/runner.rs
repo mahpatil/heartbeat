@@ -209,6 +209,7 @@ mod tests {
             name: None,
             command: cmd.to_string(),
             workspace: None,
+            timeout: None,
         }
     }
 
@@ -217,6 +218,7 @@ mod tests {
             name: Some(name.to_string()),
             command: cmd.to_string(),
             workspace: None,
+            timeout: None,
         }
     }
 

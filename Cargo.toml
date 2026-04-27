@@ -30,6 +30,8 @@ notify = "6"
 anyhow = "1"
 # HTTP checks (url-check step)
 reqwest = { version = "0.12", default-features = false, features = ["native-tls"] }
+# Human-readable duration parsing (e.g. "10m", "30s")
+humantime = "2"
 # ~ expansion
 shellexpand = "3"
 # Binary lookup

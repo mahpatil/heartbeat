@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::path::Path;
+use std::time::Duration;
 
 use super::schedule::Schedule;
 use crate::task::types::StepDef;
@@ -54,6 +55,8 @@ struct RawStep {
     expected_status: Option<u16>,
     // file-check step
     path: Option<String>,
+    // optional step-level timeout (e.g. "10m", "30s")
+    timeout: Option<String>,
 }
 
 // ── impl JobConfig ─────────────────────────────────────────────────────────────
@@ -115,6 +118,7 @@ impl JobConfig {
                 prompt,
                 flags: fm.flags,
                 workspace: None,
+                timeout: None,
             }]
         };
 
@@ -159,7 +163,18 @@ fn split_frontmatter(src: &str) -> Result<(String, String)> {
     Ok((fm_lines.join("\n"), body.join("\n")))
 }
 
+fn parse_timeout(s: &str) -> Result<Duration> {
+    humantime::parse_duration(s)
+        .with_context(|| format!("invalid timeout {:?} (use e.g. \"10m\", \"30s\", \"1h\")", s))
+}
+
 fn raw_step_to_def(rs: &RawStep, default_agent: Option<&str>) -> Result<StepDef> {
+    let timeout = rs
+        .timeout
+        .as_deref()
+        .map(parse_timeout)
+        .transpose()?;
+
     match rs.kind.as_str() {
         "agent" => {
             let agent = rs
@@ -177,6 +192,7 @@ fn raw_step_to_def(rs: &RawStep, default_agent: Option<&str>) -> Result<StepDef>
                 prompt,
                 flags: rs.flags.clone(),
                 workspace: rs.workspace.clone(),
+                timeout,
             })
         }
         "shell" => {
@@ -188,6 +204,7 @@ fn raw_step_to_def(rs: &RawStep, default_agent: Option<&str>) -> Result<StepDef>
                 name: rs.name.clone(),
                 command,
                 workspace: rs.workspace.clone(),
+                timeout,
             })
         }
         "url-check" => {
@@ -501,5 +518,104 @@ steps:
 ";
         let err = JobConfig::parse(src).unwrap_err().to_string();
         assert!(err.contains("missing 'command'"), "got: {}", err);
+    }
+
+    // ── Step timeout parsing ──────────────────────────────────────────────────
+
+    #[test]
+    fn step_timeout_minutes_parsed() {
+        let src = "\
+---
+name: timed
+schedule: every 5m
+steps:
+  - type: shell
+    command: echo hi
+    timeout: 10m
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        match &cfg.steps[0] {
+            StepDef::Shell { timeout: Some(d), .. } => {
+                assert_eq!(d.as_secs(), 600);
+            }
+            _ => panic!("expected Shell with timeout"),
+        }
+    }
+
+    #[test]
+    fn step_timeout_seconds_parsed() {
+        let src = "\
+---
+name: timed
+schedule: every 5m
+steps:
+  - type: shell
+    command: echo hi
+    timeout: 30s
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        match &cfg.steps[0] {
+            StepDef::Shell { timeout: Some(d), .. } => {
+                assert_eq!(d.as_secs(), 30);
+            }
+            _ => panic!("expected Shell with timeout"),
+        }
+    }
+
+    #[test]
+    fn step_timeout_hours_parsed() {
+        let src = "\
+---
+name: timed
+schedule: every 5m
+steps:
+  - type: shell
+    command: echo hi
+    timeout: 1h
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        match &cfg.steps[0] {
+            StepDef::Shell { timeout: Some(d), .. } => {
+                assert_eq!(d.as_secs(), 3600);
+            }
+            _ => panic!("expected Shell with timeout"),
+        }
+    }
+
+    #[test]
+    fn step_timeout_absent_is_none() {
+        let src = "\
+---
+name: notimed
+schedule: every 5m
+steps:
+  - type: shell
+    command: echo hi
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        match &cfg.steps[0] {
+            StepDef::Shell { timeout: None, .. } => {}
+            _ => panic!("expected Shell with no timeout"),
+        }
+    }
+
+    #[test]
+    fn step_timeout_invalid_value_is_error() {
+        let src = "\
+---
+name: bad-timeout
+schedule: every 5m
+steps:
+  - type: shell
+    command: echo hi
+    timeout: banana
+---
+";
+        let err = JobConfig::parse(src).unwrap_err().to_string();
+        assert!(err.contains("invalid timeout"), "got: {}", err);
     }
 }
