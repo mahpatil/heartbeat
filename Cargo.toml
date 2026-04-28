@@ -1,6 +1,6 @@
 [package]
 name = "heartbeat"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 description = "A lightweight daemon that runs agent/shell tasks from prompt markup job files"
 
@@ -38,6 +38,8 @@ shellexpand = "3"
 which = "6"
 # Interactive prompts for `new` wizard
 dialoguer = { version = "0.11", features = ["fuzzy-select"] }
+# Natural-language parsing for `build` command
+regex = "1"
 
 [dev-dependencies]
 tempfile = "3"
