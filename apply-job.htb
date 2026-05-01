@@ -1,0 +1,6 @@
+---
+name: apply-job
+schedule: every 5m
+---
+
+echo apply

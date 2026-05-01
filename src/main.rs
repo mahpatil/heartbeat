@@ -32,6 +32,20 @@ enum Cmd {
         file: PathBuf,
     },
 
+    /// Generate a .htb job file from a plain-English description
+    Build {
+        /// Natural-language description of the job (prompted if omitted)
+        description: Option<String>,
+
+        /// Output file path (defaults to <name>.htb in current directory)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Also apply the generated file to the jobs directory
+        #[arg(long)]
+        apply: bool,
+    },
+
     /// Interactively create a new .htb job file (omit flags for wizard)
     New {
         /// Output file path (defaults to <name>.htb in current directory)
@@ -155,6 +169,11 @@ async fn main() -> Result<()> {
 
         Cmd::Apply { file } => {
             cli::apply::run(&file, &hb_dir).await?;
+        }
+
+        Cmd::Build { description, output, apply } => {
+            let apply_dir = if apply { Some(hb_dir.join("jobs")) } else { None };
+            cli::build::run(description, output, apply_dir.as_deref()).await?;
         }
 
         Cmd::New { output, apply, name, schedule, prompt, agent, workspace, extra_flags } => {

@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 use super::ipc_client::send_ipc;
+use super::install::plist_path;
 use crate::ipc::JobSummary;
 
 pub async fn run(hb_dir: &PathBuf) -> Result<()> {
@@ -50,5 +51,34 @@ pub async fn run(hb_dir: &PathBuf) -> Result<()> {
         );
     }
 
+    if let Ok(home) = std::env::var("HOME") {
+        if !plist_path(&home).exists() {
+            println!();
+            println!("Tip: daemon will not survive reboot — run `heartbeat install --autostart`");
+        }
+    }
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn autostart_hint_shown_when_plist_absent() {
+        let path = plist_path("/tmp/nonexistent-heartbeat-test-home");
+        assert!(!path.exists(), "plist must not exist for hint to show");
+    }
+
+    #[test]
+    fn autostart_hint_suppressed_when_plist_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let la_dir = dir.path().join("Library/LaunchAgents");
+        std::fs::create_dir_all(&la_dir).unwrap();
+        let plist = la_dir.join("com.heartbeat.plist");
+        std::fs::write(&plist, b"").unwrap();
+        let path = plist_path(dir.path().to_str().unwrap());
+        assert!(path.exists(), "plist exists so hint must be suppressed");
+    }
 }

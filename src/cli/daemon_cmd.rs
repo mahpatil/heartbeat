@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use tracing::info;
 
+use crate::cli::install::plist_path;
 use crate::daemon::{controller::Controller, pid::PidFile};
 
 pub async fn run(hb_dir: PathBuf) -> Result<()> {
@@ -34,6 +35,13 @@ pub async fn run(hb_dir: PathBuf) -> Result<()> {
         "heartbeat daemon starting (jobs: {})",
         hb_dir.join("jobs").display()
     );
+
+    if let Ok(home) = std::env::var("HOME") {
+        if !plist_path(&home).exists() {
+            info!("Tip: run `heartbeat install --autostart` to start automatically at login");
+        }
+    }
+
     let controller = Controller::new(hb_dir);
     controller.run(shutdown_rx).await?;
 

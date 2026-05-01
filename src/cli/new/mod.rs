@@ -8,7 +8,10 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 use self::render::render;
-use self::wizard::{JobDraft, StepDraft, run as run_wizard};
+use self::wizard::run as run_wizard;
+
+pub use self::render::render as render_draft;
+pub use self::wizard::{JobDraft, StepDraft};
 use crate::job::schedule::Schedule;
 
 // ── Non-interactive args (agent / CI friendly) ────────────────────────────────

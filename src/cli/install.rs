@@ -51,9 +51,11 @@ pub async fn uninstall_autostart() -> Result<()> {
         return Ok(());
     }
 
-    // Unload (ignore errors — agent may already be stopped)
+    // Bootout (ignore errors — agent may already be stopped)
+    let uid = nix_uid();
     tokio::process::Command::new("launchctl")
-        .args(["unload", plist.to_str().unwrap()])
+        .args(["bootout", &format!("gui/{}", uid)])
+        .arg("com.heartbeat")
         .status()
         .await
         .ok();
@@ -163,14 +165,33 @@ async fn install_launchagent(hb_dir: &PathBuf, bin: &PathBuf) -> Result<()> {
     let plist = plist_path(&home);
     let log_path = hb_dir.join("logs").join("daemon.log");
 
-    // Idempotent: unload existing agent before overwriting
+    let uid = nix_uid();
+
+    // Stop any manually-started daemon so launchd can take ownership cleanly.
+    // If we skip this, the new launchd-managed daemon fails the PID-file check
+    // and enters a KeepAlive crash loop that gets the whole thing killed.
+    let pid_path = hb_dir.join("heartbeat.pid");
+    if pid_path.exists() {
+        if let Ok(s) = std::fs::read_to_string(&pid_path) {
+            if let Ok(pid) = s.trim().parse::<u32>() {
+                info!("Stopping running daemon (PID {}) before handing control to launchd", pid);
+                let _ = std::process::Command::new("kill")
+                    .args(["-TERM", &pid.to_string()])
+                    .status();
+                tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+            }
+        }
+    }
+
+    // Idempotent: bootout existing agent before overwriting
     if plist.exists() {
-        info!("Unloading existing LaunchAgent before reinstall");
+        info!("Booting out existing LaunchAgent before reinstall");
         tokio::process::Command::new("launchctl")
-            .args(["unload", plist.to_str().unwrap()])
+            .args(["bootout", &format!("gui/{}", uid), plist.to_str().unwrap()])
             .status()
             .await
             .ok();
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 
     let xml = plist_contents(
@@ -184,7 +205,7 @@ async fn install_launchagent(hb_dir: &PathBuf, bin: &PathBuf) -> Result<()> {
     info!("Wrote LaunchAgent: {}", plist.display());
 
     let status = tokio::process::Command::new("launchctl")
-        .args(["load", "-w", plist.to_str().unwrap()])
+        .args(["bootstrap", &format!("gui/{}", uid), plist.to_str().unwrap()])
         .status()
         .await?;
 
@@ -193,7 +214,7 @@ async fn install_launchagent(hb_dir: &PathBuf, bin: &PathBuf) -> Result<()> {
         println!("Plist: {}", plist.display());
         println!("To disable: heartbeat uninstall --autostart");
     } else {
-        anyhow::bail!("launchctl load failed (exit {})", status);
+        anyhow::bail!("launchctl bootstrap failed (exit {})", status);
     }
 
     Ok(())
@@ -209,6 +230,16 @@ pub fn plist_path(home: &str) -> PathBuf {
 
 fn home_dir() -> Result<String> {
     std::env::var("HOME").map_err(|_| anyhow::anyhow!("$HOME is not set"))
+}
+
+fn nix_uid() -> String {
+    std::process::Command::new("id")
+        .arg("-u")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "501".to_string())
 }
 
 /// Build the plist XML. Pure function — easy to test.
