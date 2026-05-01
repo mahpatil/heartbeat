@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::collections::HashMap;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -18,13 +19,13 @@ pub async fn execute_step(
     logger: &JobLogger,
 ) -> Result<()> {
     match step {
-        StepDef::Agent { agent, prompt, flags, workspace, timeout, .. } => {
+        StepDef::Agent { agent, prompt, flags, workspace, timeout, env, .. } => {
             let ws = workspace.as_deref().unwrap_or(job_workspace);
-            execute_agent(agent, ws, prompt, flags, *timeout, job_name, step_label, logger).await
+            execute_agent(agent, ws, prompt, flags, *timeout, env, job_name, step_label, logger).await
         }
-        StepDef::Shell { command, workspace, timeout, .. } => {
+        StepDef::Shell { command, workspace, timeout, env, .. } => {
             let ws = workspace.as_deref().unwrap_or(job_workspace);
-            execute_shell(command, ws, *timeout, job_name, step_label, logger).await
+            execute_shell(command, ws, *timeout, env, job_name, step_label, logger).await
         }
         StepDef::UrlCheck { url, expected_status, .. } => {
             execute_url_check(url, *expected_status, job_name, step_label, logger).await
@@ -43,6 +44,7 @@ async fn execute_agent(
     prompt: &str,
     flags: &[String],
     timeout: Option<Duration>,
+    env: &HashMap<String, String>,
     job_name: &str,
     step_label: &str,
     logger: &JobLogger,
@@ -67,6 +69,7 @@ async fn execute_agent(
     for f in flags {
         cmd.arg(f);
     }
+    cmd.envs(env);
     cmd.stdout(Stdio::null());
     cmd.stderr(Stdio::null());
 
@@ -109,6 +112,7 @@ async fn execute_shell(
     command: &str,
     workspace: &str,
     timeout: Option<Duration>,
+    env: &HashMap<String, String>,
     job_name: &str,
     step_label: &str,
     logger: &JobLogger,
@@ -123,6 +127,7 @@ async fn execute_shell(
         .arg("-c")
         .arg(command)
         .current_dir(&ws)
+        .envs(env)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -251,6 +256,7 @@ mod tests {
             command: "echo hello".into(),
             workspace: None,
             timeout: None,
+            env: Default::default(),
         };
         let result = execute_step(&step, "/tmp", "test-job", "echo", &logger).await;
         assert!(result.is_ok());
@@ -265,6 +271,7 @@ mod tests {
             command: "exit 1".into(),
             workspace: None,
             timeout: None,
+            env: Default::default(),
         };
         let result = execute_step(&step, "/tmp", "test-job", "step[0]", &logger).await;
         assert!(result.is_err());
@@ -280,6 +287,7 @@ mod tests {
             command: "echo 'hello from step'".into(),
             workspace: None,
             timeout: None,
+            env: Default::default(),
         };
         execute_step(&step, "/tmp", "test-job", "greet", &logger).await.unwrap();
 
@@ -297,6 +305,7 @@ mod tests {
             command: "pwd".into(),
             workspace: Some(workspace.clone()),
             timeout: None,
+            env: Default::default(),
         };
         let result = execute_step(&step, "/tmp", "test-job", "step[0]", &logger).await;
         assert!(result.is_ok());
@@ -316,6 +325,7 @@ mod tests {
             command: "sleep 60".into(),
             workspace: None,
             timeout: Some(Duration::from_secs(1)),
+            env: Default::default(),
         };
 
         let start = std::time::Instant::now();
@@ -337,9 +347,28 @@ mod tests {
             command: "echo hello".into(),
             workspace: None,
             timeout: Some(Duration::from_secs(10)),
+            env: Default::default(),
         };
         let result = execute_step(&step, "/tmp", "test-job", "step[0]", &logger).await;
         assert!(result.is_ok());
+    }
+
+    // ── Env var injection ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_shell_step_env_var_reaches_child() {
+        let dir = TempDir::new().unwrap();
+        let logger = test_logger(&dir).await;
+        let step = StepDef::Shell {
+            name: None,
+            command: "echo $MY_VAR".into(),
+            workspace: None,
+            timeout: None,
+            env: [("MY_VAR".to_string(), "hello".to_string())].into(),
+        };
+        execute_step(&step, "/tmp", "test-job", "step[0]", &logger).await.unwrap();
+        let log = tokio::fs::read_to_string(logger.path()).await.unwrap();
+        assert!(log.contains("hello"), "expected env var in output, got: {}", log);
     }
 
     // ── File-check step ───────────────────────────────────────────────────────
@@ -376,7 +405,7 @@ mod tests {
 
     #[test]
     fn display_name_indexed() {
-        let step = StepDef::Shell { name: None, command: "echo".into(), workspace: None, timeout: None };
+        let step = StepDef::Shell { name: None, command: "echo".into(), workspace: None, timeout: None, env: Default::default() };
         assert_eq!(step.display_name(2), "step[2]");
     }
 
@@ -387,6 +416,7 @@ mod tests {
             command: "cargo test".into(),
             workspace: None,
             timeout: None,
+            env: Default::default(),
         };
         assert_eq!(step.display_name(0), "run-tests");
     }

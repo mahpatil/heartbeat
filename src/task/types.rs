@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
@@ -11,6 +12,8 @@ pub enum StepDef {
         workspace: Option<String>,
         /// Kill the agent process after this duration.
         timeout: Option<Duration>,
+        /// Extra environment variables injected into the child process.
+        env: HashMap<String, String>,
     },
     Shell {
         name: Option<String>,
@@ -18,6 +21,8 @@ pub enum StepDef {
         workspace: Option<String>,
         /// Kill the shell process after this duration.
         timeout: Option<Duration>,
+        /// Extra environment variables injected into the child process.
+        env: HashMap<String, String>,
     },
     UrlCheck {
         name: Option<String>,

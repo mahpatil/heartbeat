@@ -210,6 +210,7 @@ mod tests {
             command: cmd.to_string(),
             workspace: None,
             timeout: None,
+            env: Default::default(),
         }
     }
 
@@ -219,6 +220,7 @@ mod tests {
             command: cmd.to_string(),
             workspace: None,
             timeout: None,
+            env: Default::default(),
         }
     }
 

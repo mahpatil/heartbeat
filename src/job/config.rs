@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
@@ -57,6 +58,9 @@ struct RawStep {
     path: Option<String>,
     // optional step-level timeout (e.g. "10m", "30s")
     timeout: Option<String>,
+    // per-step environment variables
+    #[serde(default)]
+    env: HashMap<String, String>,
 }
 
 // ── impl JobConfig ─────────────────────────────────────────────────────────────
@@ -119,6 +123,7 @@ impl JobConfig {
                 flags: fm.flags,
                 workspace: None,
                 timeout: None,
+                env: Default::default(),
             }]
         };
 
@@ -193,6 +198,7 @@ fn raw_step_to_def(rs: &RawStep, default_agent: Option<&str>) -> Result<StepDef>
                 flags: rs.flags.clone(),
                 workspace: rs.workspace.clone(),
                 timeout,
+                env: rs.env.clone(),
             })
         }
         "shell" => {
@@ -205,6 +211,7 @@ fn raw_step_to_def(rs: &RawStep, default_agent: Option<&str>) -> Result<StepDef>
                 command,
                 workspace: rs.workspace.clone(),
                 timeout,
+                env: rs.env.clone(),
             })
         }
         "url-check" => {
@@ -600,6 +607,50 @@ steps:
         match &cfg.steps[0] {
             StepDef::Shell { timeout: None, .. } => {}
             _ => panic!("expected Shell with no timeout"),
+        }
+    }
+
+    // ── Per-step env vars ─────────────────────────────────────────────────────
+
+    #[test]
+    fn env_vars_parsed_from_yaml() {
+        let src = "\
+---
+name: env-test
+schedule: every 5m
+steps:
+  - type: shell
+    command: echo hi
+    env:
+      FOO: bar
+      NUM: \"42\"
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        match &cfg.steps[0] {
+            StepDef::Shell { env, .. } => {
+                assert_eq!(env.get("FOO").map(String::as_str), Some("bar"));
+                assert_eq!(env.get("NUM").map(String::as_str), Some("42"));
+            }
+            _ => panic!("expected Shell step"),
+        }
+    }
+
+    #[test]
+    fn env_absent_is_empty_map() {
+        let src = "\
+---
+name: no-env
+schedule: every 5m
+steps:
+  - type: shell
+    command: echo hi
+---
+";
+        let cfg = JobConfig::parse(src).unwrap();
+        match &cfg.steps[0] {
+            StepDef::Shell { env, .. } => assert!(env.is_empty()),
+            _ => panic!("expected Shell step"),
         }
     }
 
