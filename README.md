@@ -402,6 +402,32 @@ bash tests/install/test_install_sh.sh
 
 ---
 
+## Troubleshooting
+
+### `heartbeat` is immediately killed — even `heartbeat --help`
+
+macOS Gatekeeper or Sequoia's stricter execution policy can SIGKILL an unsigned
+binary before it runs a single instruction. This affects binaries copied manually
+(e.g. `cp target/release/heartbeat ~/.heartbeat/`) without going through the
+installer.
+
+**Fix:**
+
+```bash
+# Strip quarantine attributes and ad-hoc sign the binary
+xattr -c ~/.heartbeat/heartbeat
+codesign --sign - --force ~/.heartbeat/heartbeat
+
+# Verify it works
+heartbeat --version
+```
+
+The installer (`install.sh`) does this automatically for every install path
+(pre-built download and cargo build). If you copy the binary manually after a
+`cargo build --release`, run the two commands above.
+
+---
+
 ## Roadmap
 
 | Milestone | Status |

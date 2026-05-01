@@ -62,6 +62,14 @@ LATEST="$(curl -fsSL --max-time 10 "https://api.github.com/repos/$REPO/releases/
 
 # ── Binary install ────────────────────────────────────────────────────────────
 
+# macOS: strip quarantine/provenance attrs and ad-hoc sign so Gatekeeper allows execution
+macos_sign() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        xattr -c "$BIN" 2>/dev/null || true
+        codesign --sign - --force "$BIN" 2>/dev/null || true
+    fi
+}
+
 install_binary() {
     # Try pre-built binary first (macOS only, release must exist)
     if [[ "$TARGET" == *"apple-darwin"* && -n "$LATEST" ]]; then
@@ -85,6 +93,7 @@ install_binary() {
             mv "$BIN.tmp" "$BIN"
             rm -f "$BIN.tmp.sha256"
             chmod +x "$BIN"
+            macos_sign
             info "Installed binary: $BIN"
             return 0
         else
@@ -119,13 +128,7 @@ install_binary() {
     fi
 
     chmod +x "$BIN"
-
-    # macOS: clear quarantine/provenance attributes and ad-hoc sign
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        xattr -c "$BIN" 2>/dev/null || true
-        codesign --sign - --force "$BIN" 2>/dev/null || true
-    fi
-
+    macos_sign
     info "Installed binary: $BIN"
 }
 
