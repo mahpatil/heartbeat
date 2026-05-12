@@ -1,4 +1,4 @@
-# 💓 heartbeat
+# 💓 heartbeat - lightweight scheduler for all things AI or non-AI
 
 <p align="center">
   <img src="https://img.shields.io/badge/rust-v1.75+-orange.svg" alt="Rust">
@@ -18,7 +18,7 @@
   <code>__/\__/\__/\__/\__/\__/\__/\__/\__/\__/\__/\__</code>
 </p>
 
-Heartbeat is a zero-config Rust daemon that runs your AI agent and shell tasks on a schedule, directly in your user context. No root, no complex credential plumbing, no `cron` headaches. It just works with the environment you already have.
+Heartbeat is a zero-config Rust daemon that runs your AI agent and shell tasks on a schedule, directly in your user context. No root, no complex credential plumbing, no `cron` headaches. It just works with the environment you already have. Run it in your personal context, in a sandbox, or inside a container.
 
 ---
 
@@ -26,13 +26,14 @@ Heartbeat is a zero-config Rust daemon that runs your AI agent and shell tasks o
 
 Modern automation shouldn't require setting up a heavy orchestration engine or wrestling with system-level cron jobs that lack your environment variables and API keys.
 
-| Feature | `heartbeat` | `cron` | `Airflow` / `Dagster` |
-| :--- | :---: | :---: | :---: |
-| **Setup Time** | < 1 min | Quick | Hours |
-| **User Environment** | ✅ Native | ❌ Stripped | ❌ Containerized |
-| **Agent Friendly** | ✅ Built-in | ❌ No | ❌ Complex |
-| **Multi-step Pipes** | ✅ YAML | ❌ Scripting | ✅ Python DSL |
-| **Dependencies** | None (Binary) | System | Many |
+| Feature | `heartbeat` | `cron` | `Airflow` / `Dagster` | `OpenClaw` |
+| :--- | :---: | :---: | :---: | :---: |
+| **Setup Time** | < 1 min | Quick | Hours | Quick |
+| **User Environment** | ✅ Native | ❌ Stripped | ❌ Containerized | ✅ Native |
+| **Agent Friendly** | ✅ Built-in | ❌ No | ❌ Complex |  ✅ Built-in |
+| **Multi-step Pipes** | ✅ YAML | ❌ Scripting | ✅ Python DSL | ✅ Skills |
+| **Dependencies** | None (Binary) | System | Many | Many |
+| **Footprint** | Minimal | Small | Large | Large |
 
 ---
 
