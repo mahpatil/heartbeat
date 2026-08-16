@@ -1,3 +1,5 @@
+@../CLAUDE.md
+
 # CLAUDE.md
 
 Guidance for Claude Code when working in this repository.
@@ -29,16 +31,16 @@ cargo fmt
 
 ```
 src/
-├── main.rs               # Entry point: loads .env, finds jobs dir, starts scheduler
-├── job/
-│   ├── mod.rs
-│   ├── config.rs         # JobConfig — loads .yaml/.htb job files
-│   └── scheduler.rs      # Per-job tokio tasks, cron loop, hot-reload poll
-└── task/
-    ├── mod.rs
-    ├── types.rs           # TaskDef enum (Run, Url, FileExists, Agent, AgentApi)
-    └── runner.rs          # run_task() — executes each variant
+├── main.rs, ipc.rs
+├── cli/          # subcommands: daemon_cmd, stop, list, apply, install, run_cmd, logs, ipc_client, new/ (wizard)
+├── daemon/        # controller.rs, ipc.rs, pid.rs — the running daemon process
+├── job/           # config.rs (JobConfig, loads .yaml/.htb), runner.rs, schedule.rs (cron loop)
+├── task/          # types.rs (TaskDef enum: Run, Url, FileExists, Agent, AgentApi), executor.rs
+├── notify/
+└── log/           # writer.rs
 ```
+
+CLI+daemon architecture (v0.6.0) — daemon runs jobs, CLI talks to it over IPC (`src/ipc.rs`).
 
 ## Runtime layout (installed)
 
